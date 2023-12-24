@@ -1,0 +1,9 @@
+Metadata-Version: 2.1
+Name: django-openai
+Version: 0.1
+Home-page: https://github.com/jlvanhulst/django-openai
+Author: Jean-Luc Vanhulst
+Author-email: jl@valor.vc
+License: MIT
+Keywords: django celery openai assistants
+License-File: LICENSE

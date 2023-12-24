@@ -1,0 +1,9 @@
+LICENSE
+README.md
+setup.cfg
+setup.py
+src/django_openai.egg-info/PKG-INFO
+src/django_openai.egg-info/SOURCES.txt
+src/django_openai.egg-info/dependency_links.txt
+src/django_openai.egg-info/requires.txt
+src/django_openai.egg-info/top_level.txt
