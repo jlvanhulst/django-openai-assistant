@@ -11,7 +11,7 @@ setup(
     url='https://github.com/jlvanhulst/django-openai',
     keywords='django celery openai assistants',
     install_requires=[
-          'json','markdown'
+         'django.conf','django.utils','django.db','openai', 'json','markdown','celery'
       ],
 
 )

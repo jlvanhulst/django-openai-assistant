@@ -1,12 +1,12 @@
 from django.conf import settings
-from openai import OpenAI
 from django.utils import timezone
 from django.db import models
+from celery import shared_task, chord
 
 import json
 import markdown
+from openai import OpenAI
 
-from celery import shared_task, chord
 import importlib
 
 _client = OpenAI( api_key=settings.OPENAI_API_KEY)

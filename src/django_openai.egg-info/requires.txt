@@ -1,2 +1,7 @@
+django.conf
+django.utils
+django.db
+openai
 json
 markdown
+celery

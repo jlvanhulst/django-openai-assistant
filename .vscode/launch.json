@@ -14,5 +14,15 @@
             ],
             "justMyCode": true
         },
+        {
+            "name": "Python: TWINE",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/twine.py",
+            "args": [
+                "sdist"
+            ],
+            "justMyCode": true
+        },
     ]
 }
