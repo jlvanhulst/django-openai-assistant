@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='django-openai',
+    name='django-openai-assistant',
     version='0.1',
     license='MIT',
     author="Jean-Luc Vanhulst",
