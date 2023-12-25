@@ -1,0 +1,16 @@
+LICENSE
+MANIFEST.in
+README.md
+setup.cfg
+setup.py
+src/django_openai_assistant/__init__.py
+src/django_openai_assistant/apps.py
+src/django_openai_assistant/assistant.py
+src/django_openai_assistant/models.py
+src/django_openai_assistant.egg-info/PKG-INFO
+src/django_openai_assistant.egg-info/SOURCES.txt
+src/django_openai_assistant.egg-info/dependency_links.txt
+src/django_openai_assistant.egg-info/requires.txt
+src/django_openai_assistant.egg-info/top_level.txt
+src/django_openai_assistant/migrations/0001_initial.py
+src/django_openai_assistant/migrations/__init__.py

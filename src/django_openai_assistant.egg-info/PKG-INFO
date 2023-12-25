@@ -1,3 +1,16 @@
+Metadata-Version: 2.1
+Name: django-openai-assistant
+Version: 0.28
+Home-page: https://github.com/jlvanhulst/django-openai
+Author: Jean-Luc Vanhulst
+Author-email: jl@valor.vc
+License: MIT
+Keywords: django celery openai assistants
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: openai
+Requires-Dist: markdown
+
 A Django / Celery scalable OpenAI Assistant Runner.
 
 Assumption: you have Django up and running with Celery. 
