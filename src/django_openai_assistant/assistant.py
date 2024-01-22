@@ -82,7 +82,10 @@ def _getf(functionName) -> object:
     try:
         f = getattr(module, function)
     except:
-        pass
+        if settings.DEBUG:
+            raise Exception('Function '+functionName+' could not run')
+        else:
+            pass
     return f
 
 def getTools(array,value=None) -> list:
@@ -95,7 +98,7 @@ def getTools(array,value=None) -> list:
     for a in array:
         f = _getf(a)
         if f!=None:
-            if not value==None and value in a:
+            if not value==None and a.endswith(':'+value):
                 return a
             tools.append( {"type": "function","function" : f()})       
     return tools
@@ -339,11 +342,19 @@ class assistantTask():
         '''
         print('create run '+self.thread_id)
         # Excepts an openAiTask object    
-        run = self.client.beta.threads.runs.create(
+        try:
+            run = self.client.beta.threads.runs.create(
             thread_id=self.thread_id,
             assistant_id= self.assistant_id,
-        )
-        self.task = OpenaiTask.objects.create( assistantId=self.assistant_id, runId=run.id, threadId=self.thread_id, completionCall=self.completionCall, tools=",".join(self.tools), meta = self._metadata    )
+            )
+        except Exception as e:
+            print('create thread failed '+str(e))
+            return None
+        try: 
+            self.task = OpenaiTask.objects.create( assistantId=self.assistant_id, runId=run.id, threadId=self.thread_id, completionCall=self.completionCall, tools=",".join(self.tools), meta = self._metadata    )
+        except Exception as e:
+            print('create run failed '+str(e))
+            return None
         self.task.save()
         # start the delayed status checking
         getStatus.delay(self.task.runId+','+self.task.threadId)
@@ -390,7 +401,7 @@ class assistantTask():
         '''
         if fileContent == None:
             fileContent = file.read()
-        uploadFile = self.client.files.create( file=fileContent,purpose='assistants') #user_provided_filename=filename
+        uploadFile = self.client.files.create( file=(filename,fileContent),purpose='assistants')
         if addToAssistant:
             af = self.client.beta.assistants.files.create(assistant_id=self.assistant_id, file_id=uploadFile.id)
             return af.id

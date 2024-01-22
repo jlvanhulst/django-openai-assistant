@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "django-openai-assistant"
+version = "0.31"
+dependencies = ["openai", "markdown"]
+readme = "README.md"
+authors = [{name = "Jean-Luc Vanhulst", email = "jl@valor.vc"}]
+maintainers = [{name = "Jean-Luc Vanhulst", email = "jl@valor.vc"}]
+classifiers = ["License :: OSI Approved :: MIT License"]
+urls = {Homepage = "https://github.com/jlvanhulst/django-openai"}
+keywords = ["django", "celery", "openai", "assistants"]
+description = "Django OpenAI Assistant"
+
+[tool.hatch.build]
+exclude = ["~/*",".venv",".vscode","build"]
+
+

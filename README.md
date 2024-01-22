@@ -51,3 +51,8 @@ def afterRunFunction(taskID):
         print('run failed')
 '''
 See https://medium.com/@jlvalorvc/building-a-scalable-openai-assistant-processor-in-django-with-celery-a61a1af722e0
+
+Updates:
+0.31 - made sure that file uploads receive a 'file name' when uploaded. 
+0.30 - fix to properly differentiate between two functions that start with the same name like 'company' and 'companyfind'
+and throw and exception (istead of a pass) when running in Debug mode when calling tool function. 
