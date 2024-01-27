@@ -120,7 +120,7 @@ def callToolsDelay(comboId,tool_calls,tools):
     gr = None
     for t in tool_calls:
         functionCall = getTools(tools,t.function.name)
-        tasks.append( _callTool.s( {"tool_call_id": t.id,"function": t.function.name, "arguments" :t.function.arguments, "function_call": functionCall} , comboId) )
+        tasks.append( _callTool.s( {"tool_call_id": t.id,"function": t.function.name, "arguments" :t.function.arguments, "function_call": functionCall} , comboId=comboId) )
         print('function call added to chain '+t.function.name+'('+t.function.arguments+')')
 
     if len(tasks)>0:
@@ -134,6 +134,8 @@ def callToolsDelay(comboId,tool_calls,tools):
 def _callTool(tool_call,comboId=None):
     ''' call a single tool. Since this is a shared task, each individual function call 'becomes' a task
     note that the function we're calling is not expected to be a task. It's just a function.
+    
+    Also not that we're adding the thread/run combo id string as an extra named parameter. This allows you to retrieve the callind task or the run/thread if need.
     '''
     functionName = tool_call['function']
     attributes = json.loads(tool_call['arguments'])
@@ -153,7 +155,7 @@ def _callTool(tool_call,comboId=None):
 
 @shared_task(name="Submit Tool Outputs")
 def submitToolOutputs(fromTools, comboId):    
-    ''' This function gets called after the last function calls is completed and will submit the results back
+    ''' This function gets called after the last function call is completed and will submit the results back
     to the AssistantsAPI
     
     fromTools is the array of outputs from each function
@@ -307,7 +309,9 @@ class assistantTask():
         self._metadata = None
         self.tools = None
         for key, value in kwargs.items():
-            if key == 'run_id':
+            if key == 'run_id' or key == 'runId' or key =="comboId":
+                if key == 'comboId':
+                    value = value.split(',')[0]
                 self.task= OpenaiTask.objects.get(runId=value)
                 if self.task != None:
                     self.runObject = self.client.beta.threads.runs.retrieve(run_id=self.task.runId, thread_id=self.task.threadId)
