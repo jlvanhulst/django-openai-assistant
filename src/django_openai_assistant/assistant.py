@@ -11,6 +11,23 @@ from .models import OpenaiTask
 
 _client = OpenAI( api_key=settings.OPENAI_API_KEY)
 
+
+def asmarkdown(text, replaceThis=None, withThis=None):
+    ret = None
+    if text != None:
+        extension_configs = {
+        'markdown_link_attr_modifier': {
+        'new_tab': 'on',
+        'no_referrer': 'external_only',
+        'auto_title': 'on',
+        }}
+        if replaceThis != None and withThis != None:
+            ret = markdown.markdown(text,extensions=['tables','markdown_link_attr_modifier'],extension_configs=extension_configs).replace(replaceThis,withThis)
+        else:
+            ret =markdown.markdown(text,extensions=['tables','markdown_link_attr_modifier'],extension_configs=extension_configs)
+    return ret
+
+
 def getOpenaiClient():
     return _client
 
@@ -207,7 +224,12 @@ def getStatus(comboId):
         # Run is done! Get the response, save in the task opbject and schedule the completion call if one was 
         # provided.
         messages = client.beta.threads.messages.list( thread_id=task.threadId)
-        task.response = messages.data[0].content[0].text.value.strip()
+        task.response =""
+        for t in messages.data[0].content:
+            if t.type == 'text':
+                task.response += t.text.value.strip()
+            else:
+                task.response += 'file ['+t.image_file.file_id+']'
         task.status = run.status
         task.completed_at = timezone.now()
         task.save()
@@ -269,13 +291,20 @@ class assistantTask():
         return self.threadObject.id
     
     @property
+    def run_id(self) -> str:
+        return self.task.runId
+    
+    @property
     def metadata(self) -> dict:
-
-        return self._metadata
+        if self._metadata == None:
+            return {}
+        else:
+            return self._metadata
     
     @metadata.setter
     def metadata(self, value):
         self._metadata = value
+        
     @prompt.setter
     def prompt(self, message):
         self._startPrompt = message
@@ -309,10 +338,13 @@ class assistantTask():
         self._metadata = None
         self.tools = None
         for key, value in kwargs.items():
-            if key == 'run_id' or key == 'runId' or key =="comboId":
+            if key == 'run_id' or key == 'runId' or key == "comboId" or key =='thread_id' or key == 'threadId':
                 if key == 'comboId':
                     value = value.split(',')[0]
-                self.task= OpenaiTask.objects.get(runId=value)
+                if key == 'threadId' or key == 'thread_id':
+                    self.task= OpenaiTask.objects.get(threadId=value)
+                else:
+                    self.task= OpenaiTask.objects.get(runId=value)
                 if self.task != None:
                     self.runObject = self.client.beta.threads.runs.retrieve(run_id=self.task.runId, thread_id=self.task.threadId)
                     if self.runObject == None:
@@ -380,19 +412,8 @@ class assistantTask():
     def markdownResponse(self, replaceThis=None, withThis=None):
         ''' returns the response with markdown formatting - convient for rendering in chat like responses
         '''
-        if self.response != None:
-            extension_configs = {
-            'markdown_link_attr_modifier': {
-            'new_tab': 'on',
-            'no_referrer': 'external_only',
-            'auto_title': 'on',
-            }}
-            if replaceThis != None and withThis != None:
-                return markdown.markdown(self.response,extensions=['tables','markdown_link_attr_modifier'],extension_configs=extension_configs).replace(replaceThis,withThis)
-            else:
-                return markdown.markdown(self.response,extensions=['tables','markdown_link_attr_modifier'],extension_configs=extension_configs)
-        else:
-            return None
+        return asmarkdown(self.response,replaceThis,withThis)
+        
         
     def uploadFile(self,file=None,fileContent=None,addToAssistant=True,filename=None):
         ''' Upload a file to openAI either for the Assistant or for the Thread.
@@ -412,3 +433,14 @@ class assistantTask():
         else:
             self._fileids.append(uploadFile.id)
             return uploadFile.id
+        
+    def getlastresponse(self):
+        ''' Get the last response from the assistant, returns the data[] portion of the response
+        '''
+        messages = self.client.beta.threads.messages.list( thread_id=self.thread_id)
+        return messages.data[0]
+    
+    def retrieveFile(self,file_id):
+        ''' Retrieve the FILE CONTENT of a file from OpenAI
+        '''
+        return self.client.files.content(file_id=file_id)
