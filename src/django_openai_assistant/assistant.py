@@ -307,12 +307,13 @@ class assistantTask():
         
     @prompt.setter
     def prompt(self, message):
+        att = [ {'file-id': id, 'tools': [{ "type": "file_search" },{ "type": "code_interpreter" }] } for id in self._fileids]
         self._startPrompt = message
         self.threadObject = self.client.beta.threads.create(messages=[] )
         self._message_id = self.client.beta.threads.messages.create(
         thread_id=self.thread_id,
         content=message,
-        file_ids=self._fileids,
+        attachments= att,
         role="user"
             )
     
@@ -369,11 +370,14 @@ class assistantTask():
                 self.tools = value    
      
       
-    def createRun(self) -> str:
+    def createRun(self,temperature:float=1) -> str:
         ''' Create an OpenAI run and start checking the status 
         
         This this will persist the task in the database - run id is the primary key. Please note that openAI needs both ThreadId and RunId 
         to retrieve a Run. We handle that in the object so that you will only need run id. The primary key in the Taks table is the run id.
+        
+        paramaters:
+            temperature - the temperature to use for the run. Default is 1 values 0 - 2 as per OpenAI documentation
         
         '''
         print('create run '+self.thread_id)
@@ -382,6 +386,7 @@ class assistantTask():
             run = self.client.beta.threads.runs.create(
             thread_id=self.thread_id,
             assistant_id= self.assistant_id,
+            temperature=temperature,
             )
         except Exception as e:
             print('create thread failed '+str(e))
@@ -415,24 +420,28 @@ class assistantTask():
         return asmarkdown(self.response,replaceThis,withThis)
         
         
-    def uploadFile(self,file=None,fileContent=None,addToAssistant=True,filename=None):
+    def uploadFile(self,file=None,fileContent=None,filename=None,**kwargs):
         ''' Upload a file to openAI either for the Assistant or for the Thread.
         
         parameters:
             file - a file object
             fileContent - the content of the file
+            
             addToAssistant - if true will add the file to the assistant. If false will add it to the thread
+            *** Note addToAssistant is not currently supported due to the V2 changes. 
+            
             filename - the name of the file. If not provided will use the name of the file object
+            All uploaded files will automatically be provided in the message to the assistant with both search and code interpreter enabled.
         '''
         if fileContent == None:
             fileContent = file.read()
         uploadFile = self.client.files.create( file=(filename,fileContent),purpose='assistants')
-        if addToAssistant:
-            af = self.client.beta.assistants.files.create(assistant_id=self.assistant_id, file_id=uploadFile.id)
-            return af.id
-        else:
-            self._fileids.append(uploadFile.id)
-            return uploadFile.id
+        #if addToAssistant:
+        #    af = self.client.beta.assistants.files.create(assistant_id=self.assistant_id, file_id=uploadFile.id)
+        #    return af.id
+        #else:
+        self._fileids.append(uploadFile.id)
+        return uploadFile.id
         
     def getlastresponse(self):
         ''' Get the last response from the assistant, returns the data[] portion of the response

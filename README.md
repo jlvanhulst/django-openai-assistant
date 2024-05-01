@@ -46,6 +46,14 @@ def afterRunFunction(taskID):
 See https://medium.com/@jlvalorvc/building-a-scalable-openai-assistant-processor-in-django-with-celery-a61a1af722e0
 
 ## Version history:
+0.5.0
+- - Added support for Assistants 2.0. For now all files are added to a thread with support for both search and code completion. For now no support to upload files to a vectorstore to an Assistant. 
+0.4.3
+- - Added optional parameter temperature createRun() default is 1, like the OpenAI default
+
+0.4.2
+- Added optional parameter temperature createRun() default is 1, like the OpenAI default
+
 0.4.1
 - another fix for metadata always returning {} never None
 
