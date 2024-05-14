@@ -9,9 +9,6 @@ from openai import OpenAI
 import importlib
 from .models import OpenaiTask
 
-_client = OpenAI( api_key=settings.OPENAI_API_KEY)
-
-
 def asmarkdown(text, replaceThis=None, withThis=None):
     ret = None
     if text != None:
@@ -28,10 +25,6 @@ def asmarkdown(text, replaceThis=None, withThis=None):
     return ret
 
 
-def getOpenaiClient():
-    return _client
-
-
 def createAssistant(name,instructions,model, tools):
     ''' Create an OpenAI Assistant programmatically
     parameters:
@@ -46,7 +39,7 @@ def createAssistant(name,instructions,model, tools):
         
     returns: the assistant object as created.  Assistant.id is the unique key that was assigned to the assistant.
     '''
-    client = getOpenaiClient()
+    client = OpenAI( api_key=settings.OPENAI_API_KEY)
     assistant = client.beta.assistants.create(
         name=name,
         instructions=instructions,
@@ -70,14 +63,14 @@ def getAssistant(**kwargs) -> object:
         returns: the OpenAI assistant object
         
     '''
-    client = getOpenaiClient()
+    client = OpenAI( api_key=settings.OPENAI_API_KEY)
     if len(kwargs.items())==0:
-        return client.beta.assistants.list()
+        return client.beta.assistants.list(limit=100)
 
     for key, value in kwargs.items():
         if key == 'name' or key == 'Name' or key == 'assistantName':
             Name = value
-            aa = client.beta.assistants.list()
+            aa = client.beta.assistants.list(limit=100)
             assistant = None
             for a in aa.data:
                 if a.name == Name:
@@ -181,7 +174,7 @@ def submitToolOutputs(fromTools, comboId):
     '''
     run_id = comboId.split(',')[0]
     thread_id = comboId.split(',')[1]
-    client = getOpenaiClient()
+    client = OpenAI( api_key=settings.OPENAI_API_KEY)
     print("Submit tool outputs "+run_id)
     output = []
     for o in fromTools:
@@ -212,7 +205,7 @@ def getStatus(comboId):
     run_id = comboId.split(',')[0]
     thread_id = comboId.split(',')[1]
     # Expects a  runid,threadid combo in a string
-    client = getOpenaiClient()
+    client = OpenAI( api_key=settings.OPENAI_API_KEY)
     run = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run_id)
     if run.status == 'completed' or run.status == 'requires_action':
         # only then do we need the object to do something with. 
@@ -325,7 +318,7 @@ class assistantTask():
         if run_id is provided it will retrieve the task from the database. If not it will create a new task.
         
         '''
-        self.client = getOpenaiClient()
+        self.client = OpenAI( api_key=settings.OPENAI_API_KEY)
         self._fileids = []
         self._startPrompt = None
         self._message_id = None
