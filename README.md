@@ -46,13 +46,32 @@ def afterRunFunction(taskID):
 See https://medium.com/@jlvalorvc/building-a-scalable-openai-assistant-processor-in-django-with-celery-a61a1af722e0
 
 ## Version history:
+0.6.0
+- since 1.33.00 Openai properly supports the 'vision' file attachment. Now supported here as well. 
+Based on filetype images are automatically marked as 'vision' and added to the thread as such.
+        image_extensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff']
+
+- Added getallmessages() and getfullresponse() to easily support threaded responses 
+- requires openai 1.33.0
+
+0.5.4
+- added getallmessages() which returns threads.messages.list( thread_id=self.thread_id) .data
+0.5.3
+- Added getfullresponse() that comiles all Assistant repsonses in one message
+- still waiting for the openai Python library to support vision.
+0.5.2
+- Updated the file upload mechanism to determine file types (retrieval yes/no and prepare for vision support (image yes/no))
+- When attachments are added to a thread they will always have 'tools' enabled and retrieval will only be enabled for the supported file types https://platform.openai.com/docs/assistants/tools/file-search/supported-files
+
 0.5.1
-- - Remove getopenaiclient() instead use OpenAI() everywhere
-- - Fix getAssistant() that could fail if retrieving an Assistant by name from an org with more than 20 Assistants.
+- Remove getopenaiclient() instead use OpenAI() everywhere
+- Fix getAssistant() that could fail if retrieving an Assistant by name from an org with more than 20 Assistants.
+
 0.5.0
-- - Added support for Assistants 2.0. For now all files are added to a thread with support for both search and code completion. For now no support to upload files to a vectorstore to an Assistant. 
+- Added support for Assistants 2.0. For now all files are added to a thread with support for both search and code completion. For now no support to upload files to a vectorstore to an Assistant. 
+
 0.4.3
-- - Added optional parameter temperature createRun() default is 1, like the OpenAI default
+- Added optional parameter temperature createRun() default is 1, like the OpenAI default
 
 0.4.2
 - Added optional parameter temperature createRun() default is 1, like the OpenAI default

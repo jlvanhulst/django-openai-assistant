@@ -85,8 +85,11 @@ def getAssistant(**kwargs) -> object:
 def _getf(functionName) -> object:
     ''' get a callable function from a string in the form module:function
     '''
-    module = functionName.split(':')[0]
-    function =  functionName.split(':')[1]
+    try:
+        module = functionName.split(':')[0]
+        function =  functionName.split(':')[1]
+    except:
+        raise Exception('Function name {} not defined'.format(functionName))
     module = importlib.import_module(module,package=__package__)
     f = None
     try:
@@ -299,8 +302,20 @@ class assistantTask():
         self._metadata = value
         
     @prompt.setter
-    def prompt(self, message):
-        att = [ {'file-id': id, 'tools': [{ "type": "file_search" },{ "type": "code_interpreter" }] } for id in self._fileids]
+    def prompt(self, message:str):
+        att = []
+        visions = []
+        for file in self._fileids:
+            if file['vision']:
+                visions.append(file['id'])
+                continue
+            elif file['retrieval']:
+                tools = [{'type': 'file_search'}]
+            else:
+                tools = [{'type': 'code_interpreter'}]            
+            att.append( {
+                'file_id': file['id'],
+                'tools': tools  }  ) 
         self._startPrompt = message
         self.threadObject = self.client.beta.threads.create(messages=[] )
         self._message_id = self.client.beta.threads.messages.create(
@@ -309,6 +324,15 @@ class assistantTask():
         attachments= att,
         role="user"
             )
+        for v in visions:
+            self.client.beta.threads.messages.create(
+                thread_id=self.thread_id,
+                content= [{
+                'type' : "image_file",
+                'image_file' : {"file_id": v ,'detail':'high'}}],
+                role="user"
+            )
+        
     
     def __init__(self, **kwargs ):
         ''' Create an assistant task
@@ -428,19 +452,56 @@ class assistantTask():
         '''
         if fileContent == None:
             fileContent = file.read()
-        uploadFile = self.client.files.create( file=(filename,fileContent),purpose='assistants')
-        #if addToAssistant:
-        #    af = self.client.beta.assistants.files.create(assistant_id=self.assistant_id, file_id=uploadFile.id)
-        #    return af.id
-        #else:
-        self._fileids.append(uploadFile.id)
+        # Determine file extension
+        file_extension = filename.split('.')[-1].lower()
+        
+        # Determine if the file is an image
+        image_extensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff']
+        vision = file_extension in image_extensions
+        # Determine if the file is for retrieval
+        retrieval_extensions = [
+            'c', 'cs', 'cpp', 'doc', 'docx', 'html', 'java', 'json', 'md', 'pdf', 'php',
+            'pptx', 'py', 'rb', 'tex', 'txt', 'css', 'js', 'sh', 'ts'
+        ]
+        retrieval = file_extension in retrieval_extensions
+        
+        uploadFile = self.client.files.create( file=(filename,fileContent),purpose=('vision' if vision else 'assistants'))
+        #uploadFile = self.client.files.create( file=(filename,fileContent),purpose='assistants')
+
+        # Append the file information to self._fileids
+        self._fileids.append({
+            'id': uploadFile.id,
+            'filename': filename,
+            'vision': vision,
+            'retrieval': retrieval
+        })
+    
         return uploadFile.id
         
     def getlastresponse(self):
-        ''' Get the last response from the assistant, returns the data[] portion of the response
+        ''' Get the last response from the assistant, returns messages.data[0] 
         '''
         messages = self.client.beta.threads.messages.list( thread_id=self.thread_id)
         return messages.data[0]
+    
+    def getallmessages(self) -> list:
+        ''' Get all messages from the assistant - returns messages.data (list)
+        '''
+        messages = self.client.beta.threads.messages.list( thread_id=self.thread_id)
+        return messages.data
+    
+    def getfullresponse(self) -> str:
+        ''' Get the full text response from the assistant (concatenated text type messages)
+        traverses the messages.data list and concatenates all text messages
+        '''
+        messages = self.client.beta.threads.messages.list( thread_id=self.thread_id)
+        res = ''
+        for m in reversed(messages.data):
+            if m.role == 'assistant':
+                for t in m.content:
+                    if t.type == 'text':
+                        res += t.text.value
+        return res
     
     def retrieveFile(self,file_id):
         ''' Retrieve the FILE CONTENT of a file from OpenAI
