@@ -23,6 +23,7 @@ OPENAI_API_KEY = "<your-key>"
  - Create and apply migrations for django_openai_assistant:
 ```py
 python manage.py makemigrations django_openai_assistant
+python manage.py migrate django_openai_assistant
 ```
 3. Create a simple Assistant in https://platform.openai.com/assistants. To begin you probably want one with no functions.
 
