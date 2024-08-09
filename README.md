@@ -9,14 +9,24 @@ pip install django_openai_assistant
 ```
 
 2. in `settings.py`
- - Add 'django_openai_assistant' to your INSTALLED_APPS [] array  
- - Make sure to have OPENAI_API_KEY defined in settings with your OpenAI key  
- - Create and apply migrations for django_openai_assistant 
-
+ - Add 'django_openai_assistant' to your INSTALLED_APPS [] array:
+```py
+INSTALLED_APPS = [
+    # other apps
+    'django_openai_assistant',
+]
+```
+ - Make sure to have OPENAI_API_KEY defined in settings with your OpenAI key:
+```py
+OPENAI_API_KEY = "<your-key>"
+```
+ - Create and apply migrations for django_openai_assistant:
+```py
+python manage.py makemigrations django_openai_assistant
+```
 3. Create a simple Assistant in https://platform.openai.com/assistants. To begin you probably want one with no functions.
-Let's say you called it 'Test Assistant'
 
-4. Use the assistant in your code:
+4. In step (3) let's say you called it 'Test Assistant', then use the assistant in your code:
 
 demo.py
 ```py
