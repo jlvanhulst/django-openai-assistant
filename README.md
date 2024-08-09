@@ -31,12 +31,13 @@ python manage.py migrate django_openai_assistant
 
 demo.py
 ```py
-ffrom django_openai_assistant.assistant import assistantTask
+from django_openai_assistant.assistant import assistantTask
 from celery import shared_task
 
  # Define OPENAI_API_KEY in your settings.py file
  # Add 'django_openai_assistant' to your INSTALLED_APPS in settings.py
- # run python manage.py makemigrations django_openai_assistant and then python managey.pymigrate
+ # run python manage.py makemigrations django_openai_assistant
+ # run python managey.pymigrate
  # create at least one Assistant in https://platform.openai.com/assistants
 
 def testAssistant(request=None):
