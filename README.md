@@ -3,21 +3,23 @@
 Assumption: you have Django up and running with Celery. 
 (Tested on Redis)
 
-1. pip install django_openai_assistant
+1. In your terminal:
+```bash
+pip install django_openai_assistant
+```
 
-2. in settings.py
-Add 'django_openai_assistant' to your INSTALLED_APPS [] array  
-make sure to have OPENAI_API_KEY defined in settings with your OpenAI key  
-create and apply migrations for django_openai_assistant 
+2. in `settings.py`
+ - Add 'django_openai_assistant' to your INSTALLED_APPS [] array  
+ - Make sure to have OPENAI_API_KEY defined in settings with your OpenAI key  
+ - Create and apply migrations for django_openai_assistant 
 
-3. Create a simple Assistant in https://platform.openai.com/assistants
-To begin you probably want one with no functions.
+3. Create a simple Assistant in https://platform.openai.com/assistants. To begin you probably want one with no functions.
 Let's say you called it 'Test Assistant'
 
 4. Use the assistant in your code:
 
 demo.py
-```
+```py
 ffrom django_openai_assistant.assistant import assistantTask
 from celery import shared_task
 
