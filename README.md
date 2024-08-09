@@ -3,27 +3,41 @@
 Assumption: you have Django up and running with Celery. 
 (Tested on Redis)
 
-1. pip install django_openai_assistant
+1. In your terminal:
+```bash
+pip install django_openai_assistant
+```
 
-2. in settings.py
-Add 'django_openai_assistant' to your INSTALLED_APPS [] array  
-make sure to have OPENAI_API_KEY defined in settings with your OpenAI key  
-create and apply migrations for django_openai_assistant 
+2. in `settings.py`
+ - Add 'django_openai_assistant' to your INSTALLED_APPS [] array:
+```py
+INSTALLED_APPS = [
+    # other apps
+    'django_openai_assistant',
+]
+```
+ - Make sure to have OPENAI_API_KEY defined in settings with your OpenAI key:
+```py
+OPENAI_API_KEY = "<your-key>"
+```
+ - Create and apply migrations for django_openai_assistant:
+```py
+python manage.py makemigrations django_openai_assistant
+python manage.py migrate django_openai_assistant
+```
+3. Create a simple Assistant in https://platform.openai.com/assistants. To begin you probably want one with no functions.
 
-3. Create a simple Assistant in https://platform.openai.com/assistants
-To begin you probably want one with no functions.
-Let's say you called it 'Test Assistant'
-
-4. Use the assistant in your code:
+4. In step (3) let's say you called it 'Test Assistant', then use the assistant in your code:
 
 demo.py
-```
-ffrom django_openai_assistant.assistant import assistantTask
+```py
+from django_openai_assistant.assistant import assistantTask
 from celery import shared_task
 
  # Define OPENAI_API_KEY in your settings.py file
  # Add 'django_openai_assistant' to your INSTALLED_APPS in settings.py
- # run python manage.py makemigrations django_openai_assistant and then python managey.pymigrate
+ # run python manage.py makemigrations django_openai_assistant
+ # run python manage.py migrate
  # create at least one Assistant in https://platform.openai.com/assistants
 
 def testAssistant(request=None):
