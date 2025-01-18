@@ -59,7 +59,73 @@ def afterRunFunction(taskID):
 ```
 See https://medium.com/@jlvalorvc/building-a-scalable-openai-assistant-processor-in-django-with-celery-a61a1af722e0
 
+
 ## Version history:
+0.7.0 
+- Major update for tool calling
+Added set_default_tools() to set the default tools for all assistants. 
+This means you can now ommit the tools parameter when creating an assistant call
+you can now add a set_default_tools() call in the beginning of your code and it will be used for any agent call.
+(Note you still need to have the tools defined in the OpenAI platform for each assistant)
+
+Another big chance is a Pydanctic class is now automatically detected and supported. The first parameter of your tools function should be call params for this. It will be checked to be subclass of BaseModal. If so, the OpenAI parameters will be converted through Pydantic.
+
+Example:
+
+
+~~~
+class CreateEventParams(BaseModel):
+    email: str = Field(..., description="Owner's email.")
+    start: str = Field(..., description="Event start (ISO 8601).")
+    end: str = Field(..., description="Event end (ISO 8601).")
+    title: str = Field(..., description="Event title.")
+    description: Optional[str] = Field('', description="Event description.")
+    attendees: Optional[List[str]] = Field([], description="Attendee emails.")
+    address: Optional[str] = Field(None, description="Event address.")
+    add_google_meet_link: Optional[bool] = Field(False, description="Add Google Meet link.")
+    calendar_id: Optional[str] = Field('primary', description="Calendar ID.")
+    time_zone: Optional[str] = Field('America/New_York', description="Time zone identifier.")
+
+# params is a Pydantic (sub)class 
+def create_event(params: CreateEventParams) -> Dict:
+    '''
+    Create an event in the Google calendar 
+    '''
+    # Validate time_zone
+    try:
+        ZoneInfo(params.time_zone)
+    except Exception:
+        raise ValueError(f"Invalid time zone: {params.time_zone}")
+
+    # Convert start/end to datetime
+    try:
+        start_datetime = datetime.fromisoformat(params.start)
+    except ValueError:
+        raise ValueError("Invalid ISO 8601 format for 'start'.")
+
+    try:
+        end_datetime = datetime.fromisoformat(params.end)
+    except ValueError:
+        raise ValueError("Invalid ISO 8601 format for 'end'.")
+
+    # Call create_calendar_event function
+    event = create_calendar_event(
+        email=params.email,
+        start=start_datetime,
+        end=end_datetime,
+        title=params.title,
+        description=params.description,
+        attendees=params.attendees,
+        address=params.address,
+        add_google_meet_link=params.add_google_meet_link,
+        calendar_id=params.calendar_id,
+        time_zone=params.time_zone
+    )
+    return event.model_dump()
+~~~
+
+This way allows to also automatically create a schema for a function call! (coming soon!)
+
 0.6.0
 - since 1.33.00 Openai properly supports the 'vision' file attachment. Now supported here as well. 
 Based on filetype images are automatically marked as 'vision' and added to the thread as such.

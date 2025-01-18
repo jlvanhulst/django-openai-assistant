@@ -2,12 +2,48 @@ from django.conf import settings
 from django.utils import timezone
 from django.db import models
 from celery import shared_task, chord
-
+from typing import Optional
 import json
 import markdown
 from openai import OpenAI
 import importlib
 from .models import OpenaiTask
+import inspect
+from pydantic import BaseModel
+_DEFAULT_TOOLS = []
+_PACKAGE = None
+
+def set_default_tools(tools:Optional[dict|list]=None,package:Optional[str]=None):
+
+    ''' Set the default tools to use for the assistant. This is a global setting and will be used for all assistants if you don't provide a tools array when creating an assistant
+        parameters:
+            tools - a dictionary with the tools to use. The keys are the names of the tools and the values are dictionaries with the module and function name
+            tools = { "getCompany" : { "module" : "salesforce" }, "getContact" : { "module" : "salesforce" } }
+            or
+            tools - a list of strings in the form <module>:<function> where module is the module name and function is the function name
+            tools = [ "salesforce:getCompany" , "salesforce:getContact" , ...]
+            
+            for the module package is optional to add in front of the module name. 
+            tools = [ "chatbot.salesforce:getCompany" , "chatbot.salesforce:getContact" , ...]
+
+            package - the package to use for the tools. (if not included in the module name ie not '.' in the module name) 
+            This is saves you from having to add the packaage name for each module.
+            
+        You can set the default once, it uses global variables so it will be used for all assistants, making the tools parameter optional everywhere else.
+        
+        
+    '''
+    global _DEFAULT_TOOLS,_PACKAGE
+    if isinstance(tools, dict):
+        _DEFAULT_TOOLS = tools
+    elif isinstance(tools, list):
+        # conver arry with "module-name:function-name" strings to a dict "function-name" : {"module" : "module-name"} 
+        _DEFAULT_TOOLS = {
+            func: {"module": mod}
+            for mod, func in (tool.split(":") for tool in tools)
+        }
+    _PACKAGE = package
+    return _DEFAULT_TOOLS
 
 def asmarkdown(text, replaceThis=None, withThis=None):
     ret = None
@@ -25,7 +61,7 @@ def asmarkdown(text, replaceThis=None, withThis=None):
     return ret
 
 
-def createAssistant(name,instructions,model, tools):
+def createAssistant(name:str,instructions:str,model:Optional[str], tools: Optional[list]=_DEFAULT_TOOLS) -> object:
     ''' Create an OpenAI Assistant programmatically
     parameters:
         name - name of the assistant 
@@ -86,14 +122,25 @@ def _getf(functionName) -> object:
     ''' get a callable function from a string in the form module:function
     '''
     try:
-        module = functionName.split(':')[0]
-        function =  functionName.split(':')[1]
+        if not ":" in functionName:
+            # use the _DEFAULT_TOOLS array
+            found = _DEFAULT_TOOLS[functionName]
+            if found == None:
+                raise Exception(f'Function name {functionName} not defined in module {module_name}')
+            module_name = found["module"]
+        else:
+            module_name = functionName.split(':')[0]
+            function =  functionName.split(':')[1]
+        if not "." in module_name:
+            module_name = f"{_PACKAGE}.{module_name}"
+        module = importlib.import_module(module_name)
+
     except:
-        raise Exception('Function name {} not defined'.format(functionName))
-    module = importlib.import_module(module,package=__package__)
+        raise Exception(f'Function name {function} not defined in module {module_name}')
+
     f = None
     try:
-        f = getattr(module, function)
+        f = getattr(module, functionName,None)
     except:
         if settings.DEBUG:
             raise Exception('Function '+functionName+' could not run')
@@ -101,7 +148,7 @@ def _getf(functionName) -> object:
             pass
     return f
 
-def getTools(array,value=None) -> list:
+def getTools(array,value=None) -> list|object:
     ''' takes an array of tools in the form <modul>:<function> and return an array with the callable functions
     if value is provided will return the callable function for just that function. 
     in that case expecting JUST the function name for example 'getCompany' and not '.salesforce:getCompany'
@@ -132,8 +179,8 @@ def callToolsDelay(comboId,tool_calls,tools):
     tasks = []
     gr = None
     for t in tool_calls:
-        functionCall = getTools(tools,t.function.name)
-        tasks.append( _callTool.s( {"tool_call_id": t.id,"function": t.function.name, "arguments" :t.function.arguments, "function_call": functionCall} , comboId=comboId) )
+        #functionCall = getTools(tools,t.function.name)
+        tasks.append( _callTool.s( {"tool_call_id": t.id,"function": t.function.name, "arguments" :t.function.arguments }, comboId=comboId) )
         print('function call added to chain '+t.function.name+'('+t.function.arguments+')')
 
     if len(tasks)>0:
@@ -154,7 +201,16 @@ def _callTool(tool_call,comboId=None):
     attributes = json.loads(tool_call['arguments'])
     attributes['comboId'] = comboId
     try:
-        call = _getf(tool_call['function_call']) # get the callable function object
+        parameter_class = None
+        call = _getf(functionName) # get the callable function object
+        # check if the function argument is params and pydantic schema, in that case instantiate the schema object and pass that
+        signature = inspect.signature(call  )
+        parameter = next(iter(signature.parameters.values()), None)  # Get the first parameter
+        if parameter and parameter.annotation and parameter.name =='params' and inspect.isclass(parameter.annotation) and issubclass(parameter.annotation, BaseModel) :
+            parameter_class = parameter.annotation  # e.g. AddLocationToCalendarEvent
+        if parameter_class:
+            attributes  = parameter_class(**attributes)
+            
         functionResponse =call(attributes) # save the response
     except Exception as e:
         if settings.DEBUG:
@@ -162,7 +218,7 @@ def _callTool(tool_call,comboId=None):
             raise Exception('Error in function call '+functionName+'('+tool_call['arguments']+') '+str(e))
         functionResponse = { "status" : 'Error in function call '+functionName+'('+tool_call['arguments']+')' }
         # we can submit this repsons back to OpenAI so that Assistant will continue and report it encountered a problem
-    tool_output =   { "tool_call_id": tool_call['tool_call_id'] , "output": json.dumps(functionResponse) }
+    tool_output =   { "tool_call_id": tool_call['tool_call_id'] , "output": json.dumps(functionResponse,default=str) }
     return {"comboId" : comboId , "output":tool_output }
 
 
@@ -354,7 +410,7 @@ class assistantTask():
         self.error = None
         self.completionCall = None
         self._metadata = None
-        self.tools = None
+        self.tools = _DEFAULT_TOOLS
         for key, value in kwargs.items():
             if key == 'run_id' or key == 'runId' or key == "comboId" or key =='thread_id' or key == 'threadId':
                 if key == 'comboId':
@@ -484,13 +540,13 @@ class assistantTask():
         messages = self.client.beta.threads.messages.list( thread_id=self.thread_id)
         return messages.data[0]
     
-    def getallmessages(self) -> list:
+    def getallmessages(self):
         ''' Get all messages from the assistant - returns messages.data (list)
         '''
         messages = self.client.beta.threads.messages.list( thread_id=self.thread_id)
         return messages.data
     
-    def getfullresponse(self) -> str:
+    def getfullresponse(self):
         ''' Get the full text response from the assistant (concatenated text type messages)
         traverses the messages.data list and concatenates all text messages
         '''
