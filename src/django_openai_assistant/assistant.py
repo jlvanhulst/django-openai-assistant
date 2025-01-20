@@ -10,39 +10,58 @@ import importlib
 from .models import OpenaiTask
 import inspect
 from pydantic import BaseModel
-_DEFAULT_TOOLS = []
+_DEFAULT_TOOLS = {}
 _PACKAGE = None
 
-def set_default_tools(tools:Optional[dict|list]=None,package:Optional[str]=None):
-
-    ''' Set the default tools to use for the assistant. This is a global setting and will be used for all assistants if you don't provide a tools array when creating an assistant
-        parameters:
-            tools - a dictionary with the tools to use. The keys are the names of the tools and the values are dictionaries with the module and function name
-            tools = { "getCompany" : { "module" : "salesforce" }, "getContact" : { "module" : "salesforce" } }
-            or
-            tools - a list of strings in the form <module>:<function> where module is the module name and function is the function name
-            tools = [ "salesforce:getCompany" , "salesforce:getContact" , ...]
-            
-            for the module package is optional to add in front of the module name. 
-            tools = [ "chatbot.salesforce:getCompany" , "chatbot.salesforce:getContact" , ...]
-
-            package - the package to use for the tools. (if not included in the module name ie not '.' in the module name) 
-            This is saves you from having to add the packaage name for each module.
-            
-        You can set the default once, it uses global variables so it will be used for all assistants, making the tools parameter optional everywhere else.
-        
-        
+def set_default_tools(tools: Optional[list] = None, package: Optional[str] = None):
     '''
-    global _DEFAULT_TOOLS,_PACKAGE
-    if isinstance(tools, dict):
-        _DEFAULT_TOOLS = tools
-    elif isinstance(tools, list):
-        # conver arry with "module-name:function-name" strings to a dict "function-name" : {"module" : "module-name"} 
-        _DEFAULT_TOOLS = {
-            func: {"module": mod}
-            for mod, func in (tool.split(":") for tool in tools)
-        }
-    _PACKAGE = package
+    Set the default tools to use for the assistant. This is a global setting and will be used for all assistants 
+    if you don't provide a tools array when creating an assistant.
+
+    Parameters:
+        tools - a list of strings in the form <module>:<function> where module is the module name and function is the function name
+                tools = [ "salesforce:getCompany", "salesforce:getContact", ...]
+                
+                Optionally, include the package in the module name:
+                tools = [ "chatbot.salesforce:getCompany", "chatbot.salesforce:getContact", ...]
+        
+        package - the package to use for the tools. (if not included in the module name ie not '.' in the module name) 
+                  This saves you from having to add the package name for each module.
+    
+    Behavior:
+        - If _DEFAULT_TOOLS is already a dictionary, add new tools to it.
+        - If tools is a list, convert it to a dictionary and merge.
+        - If tools is None, do nothing.
+
+    Returns:
+        The updated _DEFAULT_TOOLS dictionary.
+    '''
+    global _DEFAULT_TOOLS, _PACKAGE
+    if tools is not None:
+        if isinstance(tools, list):
+            # Convert list of "module:function" to dict
+            new_tools = {
+                func: {"module": mod}
+                for mod, func in (tool.split(":") for tool in tools)
+            }
+            if isinstance(_DEFAULT_TOOLS, dict):
+                # Merge new_tools into _DEFAULT_TOOLS
+                _DEFAULT_TOOLS.update(new_tools)
+            else:
+                # Initialize _DEFAULT_TOOLS as new_tools
+                _DEFAULT_TOOLS = new_tools
+        elif isinstance(tools, dict):
+            if isinstance(_DEFAULT_TOOLS, dict):
+                # Merge incoming dict into _DEFAULT_TOOLS
+                _DEFAULT_TOOLS.update(tools)
+            else:
+                # Initialize _DEFAULT_TOOLS as tools
+                _DEFAULT_TOOLS = tools
+        else:
+            raise ValueError("tools must be either a list or a dictionary")
+    
+    if package is not None:
+        _PACKAGE = package
     return _DEFAULT_TOOLS
 
 def asmarkdown(text, replaceThis=None, withThis=None):
@@ -178,6 +197,10 @@ def callToolsDelay(comboId,tool_calls,tools):
     # receives COMBO ID
     tasks = []
     gr = None
+    # legacy support to make sure that the tools are in _DEFAULT_TOOLS
+    if not tools == None:
+        set_default_tools(tools=tools)
+        
     for t in tool_calls:
         #functionCall = getTools(tools,t.function.name)
         tasks.append( _callTool.s( {"tool_call_id": t.id,"function": t.function.name, "arguments" :t.function.arguments }, comboId=comboId) )
@@ -388,7 +411,28 @@ class assistantTask():
                 'image_file' : {"file_id": v ,'detail':'high'}}],
                 role="user"
             )
-        
+    
+    @property
+    def tools(self) -> list:
+        '''Getter for tools. Returns the original tools list provided during initialization.'''
+        return self._tools
+
+    @tools.setter
+    def tools(self, incoming_tools: list):
+        '''
+        Setter for tools.
+        - Ensures incoming_tools is a list.
+        - Adds new tools to _DEFAULT_TOOLS via set_default_tools().
+        - Stores the original incoming_tools list in self._tools.
+        '''
+        if not isinstance(incoming_tools, list):
+            raise ValueError("tools must be a list of tool identifiers (e.g., 'module:function')")
+
+        # Update _DEFAULT_TOOLS with incoming tools
+        set_default_tools(tools=incoming_tools)
+
+        # Store the original incoming tools
+        self._tools = incoming_tools  
     
     def __init__(self, **kwargs ):
         ''' Create an assistant task
@@ -410,7 +454,7 @@ class assistantTask():
         self.error = None
         self.completionCall = None
         self._metadata = None
-        self.tools = _DEFAULT_TOOLS
+        
         for key, value in kwargs.items():
             if key == 'run_id' or key == 'runId' or key == "comboId" or key =='thread_id' or key == 'threadId':
                 if key == 'comboId':
