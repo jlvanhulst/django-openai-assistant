@@ -317,7 +317,7 @@ def getStatus(comboId):
             function.delay(run_id)
     elif run.status == 'requires_action':
         tool_calls = run.required_action.submit_tool_outputs.tool_calls
-        tools = task.tools.split(',')
+        tools = None if task.tools is None else task.tools.split(',')
         callToolsDelay(comboId,tool_calls,tools)
         task.status = run.status
         task.save()
@@ -454,7 +454,7 @@ class assistantTask():
         self.error = None
         self.completionCall = None
         self._metadata = None
-        
+        self._tools =None
         for key, value in kwargs.items():
             if key == 'run_id' or key == 'runId' or key == "comboId" or key =='thread_id' or key == 'threadId':
                 if key == 'comboId':
@@ -509,7 +509,7 @@ class assistantTask():
             print('create thread failed '+str(e))
             return None
         try: 
-            self.task = OpenaiTask.objects.create( assistantId=self.assistant_id, runId=run.id, threadId=self.thread_id, completionCall=self.completionCall, tools=",".join(self.tools), meta = self._metadata    )
+            self.task = OpenaiTask.objects.create( assistantId=self.assistant_id, runId=run.id, threadId=self.thread_id, completionCall=self.completionCall, tools=None if self.tools is None else ",".join(self.tools), meta = self._metadata    )
         except Exception as e:
             print('create run failed '+str(e))
             return None
