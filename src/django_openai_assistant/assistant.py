@@ -222,7 +222,6 @@ def _callTool(tool_call,comboId=None):
     '''
     functionName = tool_call['function']
     attributes = json.loads(tool_call['arguments'])
-    attributes['comboId'] = comboId
     try:
         parameter_class = None
         call = _getf(functionName) # get the callable function object
@@ -232,8 +231,10 @@ def _callTool(tool_call,comboId=None):
         if parameter and parameter.annotation and parameter.name =='params' and inspect.isclass(parameter.annotation) and issubclass(parameter.annotation, BaseModel) :
             parameter_class = parameter.annotation  # e.g. AddLocationToCalendarEvent
         if parameter_class:
+            # we still need a solution to add the comboId to the parameters in case of class call. The strict schema does not allow extra fields
             attributes  = parameter_class(**attributes)
-            
+        else:
+            attributes['comboId'] = comboId
         functionResponse =call(attributes) # save the response
     except Exception as e:
         if settings.DEBUG:

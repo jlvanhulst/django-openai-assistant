@@ -61,6 +61,10 @@ See https://medium.com/@jlvalorvc/building-a-scalable-openai-assistant-processor
 
 
 ## Version history:
+0.7.3
+- remove injection of comboid when using class parameters because it will fail (if the class is set to strict)
+0.7.2
+- bug fix for calling without tools. (regression from 0.7.1)
 0.7.1 
 - better support for legacy where individual call with tools =[] and those tools are NOT in the set_default_tools() are automatically added.
 - please note: the celery WORKER needs to do a call to set_default_tools(). Best place in django read()
