@@ -1,33 +1,35 @@
+import importlib
+import inspect
+import json
+from typing import Any, BinaryIO, Callable, Optional, Union
+
+import markdown
+from celery import chord, shared_task
 from django.conf import settings
 from django.utils import timezone
-from django.db import models
-from celery import shared_task, chord
-from typing import Optional
-import json
-import markdown
 from openai import OpenAI
-import importlib
-from .models import OpenaiTask
-import inspect
 from pydantic import BaseModel
+
+from .models import OpenaiTask
+
 _DEFAULT_TOOLS = {}
 _PACKAGE = None
 
+
 def set_default_tools(tools: Optional[list] = None, package: Optional[str] = None):
-    '''
-    Set the default tools to use for the assistant. This is a global setting and will be used for all assistants 
-    if you don't provide a tools array when creating an assistant.
+    """
+    Set the default tools to use for the assistant.
+
+    This is a global setting used for all assistants if no tools array is provided.
 
     Parameters:
-        tools - a list of strings in the form <module>:<function> where module is the module name and function is the function name
-                tools = [ "salesforce:getCompany", "salesforce:getContact", ...]
-                
-                Optionally, include the package in the module name:
-                tools = [ "chatbot.salesforce:getCompany", "chatbot.salesforce:getContact", ...]
-        
-        package - the package to use for the tools. (if not included in the module name ie not '.' in the module name) 
-                  This saves you from having to add the package name for each module.
-    
+        tools: List of strings in format "<module>:<function>"
+            Examples:
+            - ["salesforce:getCompany"]
+            - ["chatbot.salesforce:getCompany"]
+        package: Optional package prefix for tool modules
+            Used when module names don't include package
+
     Behavior:
         - If _DEFAULT_TOOLS is already a dictionary, add new tools to it.
         - If tools is a list, convert it to a dictionary and merge.
@@ -35,7 +37,7 @@ def set_default_tools(tools: Optional[list] = None, package: Optional[str] = Non
 
     Returns:
         The updated _DEFAULT_TOOLS dictionary.
-    '''
+    """
     global _DEFAULT_TOOLS, _PACKAGE
     if tools is not None:
         if isinstance(tools, list):
@@ -59,391 +61,463 @@ def set_default_tools(tools: Optional[list] = None, package: Optional[str] = Non
                 _DEFAULT_TOOLS = tools
         else:
             raise ValueError("tools must be either a list or a dictionary")
-    
+
     if package is not None:
         _PACKAGE = package
     return _DEFAULT_TOOLS
 
-def asmarkdown(text, replaceThis=None, withThis=None):
-    ret = None
-    if text != None:
-        extension_configs = {
-        'markdown_link_attr_modifier': {
-        'new_tab': 'on',
-        'no_referrer': 'external_only',
-        'auto_title': 'on',
-        }}
-        if replaceThis != None and withThis != None:
-            ret = markdown.markdown(text,extensions=['tables','markdown_link_attr_modifier'],extension_configs=extension_configs).replace(replaceThis,withThis)
-        else:
-            ret =markdown.markdown(text,extensions=['tables','markdown_link_attr_modifier'],extension_configs=extension_configs)
-    return ret
+
+def asmarkdown(
+    text: Optional[str],
+    replaceThis: Optional[str] = None,
+    withThis: Optional[str] = None,
+) -> Optional[str]:
+    if text is None:
+        return None
+
+    extension_configs = {
+        "markdown_link_attr_modifier": {
+            "new_tab": "on",
+            "no_referrer": "external_only",
+            "auto_title": "on",
+        }
+    }
+
+    result = markdown.markdown(
+        text,
+        extensions=["tables", "markdown_link_attr_modifier"],
+        extension_configs=extension_configs,
+    )
+
+    if replaceThis is not None and withThis is not None:
+        result = result.replace(replaceThis, withThis)
+
+    return result
 
 
-def createAssistant(name:str,instructions:str,model:Optional[str], tools: Optional[list]=_DEFAULT_TOOLS) -> object:
-    ''' Create an OpenAI Assistant programmatically
-    parameters:
-        name - name of the assistant 
-        instructions - instructions for the assistant
-        model - the model to use
-        tools - an array of tools to use. They way we do it here is that we assume that the name of the function corresponds 
-        to the name of the tool. So if you have a function called 'webscrape' it will be added to the tools array
-        as a tool called 'webscrape'. When running an Assistant we will call the function 'webscrape' 
-     
-        Only use to create new Assistants in OpenAI!
-        
-    returns: the assistant object as created.  Assistant.id is the unique key that was assigned to the assistant.
-    '''
-    client = OpenAI( api_key=settings.OPENAI_API_KEY)
+def create_assistant(
+    name: str,
+    instructions: str,
+    model: Optional[str],
+    tools: Optional[list] = None,
+) -> Any:
+    """Create an OpenAI Assistant programmatically.
+
+    Args:
+        name: Name of the assistant
+        instructions: Instructions for the assistant
+        model: The model to use
+        tools: Array of tools to use, defaults to _DEFAULT_TOOLS if None
+
+    Returns:
+        Any: The created assistant object with unique id
+    """
+    if tools is None:
+        tools = list(_DEFAULT_TOOLS.keys())
+    client = OpenAI(api_key=settings.OPENAI_API_KEY)
     assistant = client.beta.assistants.create(
-        name=name,
-        instructions=instructions,
-        tools=getTools(tools),
-        model=model)
+        name=name, instructions=instructions, tools=get_tools(tools), model=model
+    )
     return assistant
-        
-        
-def getAssistant(**kwargs) -> object:
-    ''' Get an OpenAI Assistant object to run a task with
-    
-    Typically you would not need this function,  since you would use assistantTask()
-     
-    parameters:
-        Name - the name of the assistant
-            or
-        id / assistant_id - the id of the assistant
-        
-        when called with no parameters it will return a list of all assistants
-        
-        returns: the OpenAI assistant object
-        
-    '''
-    client = OpenAI( api_key=settings.OPENAI_API_KEY)
-    if len(kwargs.items())==0:
+
+
+def get_assistant(**kwargs) -> Union[Any, list[Any]]:
+    """Get an OpenAI Assistant object to run a task with.
+
+    Args:
+        **kwargs: Keyword arguments for assistant identification
+            name/Name/assistantName: Name of the assistant to retrieve
+            id/assistant_id: ID of the assistant to retrieve
+
+    Returns:
+        Union[Any, list[Any]]: Single assistant object or list of all assistants
+
+    Note:
+        Typically you would not need this function since you would use assistantTask()
+    """
+    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    if not kwargs:
         return client.beta.assistants.list(limit=100)
 
+    assistant = None
     for key, value in kwargs.items():
-        if key == 'name' or key == 'Name' or key == 'assistantName':
-            Name = value
-            aa = client.beta.assistants.list(limit=100)
-            assistant = None
-            for a in aa.data:
-                if a.name == Name:
+        if key.lower() in ["name", "assistantname"]:
+            assistants = client.beta.assistants.list(limit=100)
+            for a in assistants.data:
+                if a.name == value:
                     assistant = a
                     break
-        elif key == 'assistant_id' or key=="id":
-            assistant = client.beta.assistants.retrieve(assistant_id=value)  
-            break  
+            break
+        elif key in ["assistant_id", "id"]:
+            assistant = client.beta.assistants.retrieve(assistant_id=value)
+            break
     return assistant
 
 
-def _getf(functionName) -> object:
-    ''' get a callable function from a string in the form module:function
-    '''
+def _getf(functionName: str) -> Optional[Callable]:
+    """Get a callable function from a string in the form module:function."""
     try:
-        if not ":" in functionName:
-            # use the _DEFAULT_TOOLS array
+        if ":" not in functionName:
             found = _DEFAULT_TOOLS[functionName]
-            if found == None:
-                raise Exception(f'Function name {functionName} not defined in module {module_name}')
+            if found is None:
+                raise ValueError(
+                    f"Function name {functionName} not found in _DEFAULT_TOOLS"
+                )
             module_name = found["module"]
+            function = functionName
         else:
-            module_name = functionName.split(':')[0]
-            function =  functionName.split(':')[1]
-        if not "." in module_name:
+            module_name, function = functionName.split(":")
+
+        if "." not in module_name:
             module_name = f"{_PACKAGE}.{module_name}"
+
         module = importlib.import_module(module_name)
+        f = getattr(module, function, None)
 
-    except:
-        raise Exception(f'Function name {function} not defined in module {module_name}')
+        if f is None:
+            raise AttributeError(
+                f"Function {function} not found in module {module_name}"
+            )
 
-    f = None
-    try:
-        f = getattr(module, functionName,None)
-    except:
+        return f
+    except Exception:
         if settings.DEBUG:
-            raise Exception('Function '+functionName+' could not run')
-        else:
-            pass
-    return f
+            raise
+        return None
 
-def getTools(array,value=None) -> list|object:
-    ''' takes an array of tools in the form <modul>:<function> and return an array with the callable functions
-    if value is provided will return the callable function for just that function. 
-    in that case expecting JUST the function name for example 'getCompany' and not '.salesforce:getCompany'
-    
-    '''
+
+def get_tools(array: list[str], value: Optional[str] = None) -> list[dict]:
+    """Convert tool strings to callable function dictionaries.
+
+    Args:
+        array: List of tool strings in the format "module:function"
+        value: Optional function name to filter for
+
+    Returns:
+        list[dict]: List of tool dictionaries with type and function
+    """
     tools = []
     for a in array:
         f = _getf(a)
-        if f!=None:
-            if not value==None and a.endswith(':'+value):
-                return a
-            tools.append( {"type": "function","function" : f()})       
+        if f is not None:
+            if value is not None and a.endswith(":" + value):
+                return [{"type": "function", "function": f}]
+            tools.append({"type": "function", "function": f})
     return tools
 
 
-def callToolsDelay(comboId,tool_calls,tools):
-    ''' process the tools_calls array we get from the Assistant API
-    
-    comboId is a string with the runId and threadId separated by a comma
-    tool_calls is the array straight from OpenAI 
-    tools is our array of tools that we use to match the tool_calls to the functions we need to call    
-    
-    the function will create celery chord() to execute the calls and trigger the submit function with all calls
-    are completed.
-    
-    '''
-    # receives COMBO ID
+def call_tools_delay(
+    combo_id: str, tool_calls: list, tools: Optional[list] = None
+) -> Optional[Any]:
+    """Process tool calls from the Assistant API and create a Celery chord.
+
+    Args:
+        combo_id: String with runId and threadId separated by comma
+        tool_calls: Array of tool calls from OpenAI
+        tools: Optional array of tools to match with tool_calls
+
+    Returns:
+        Optional[Any]: Celery chord group if tasks exist, None otherwise
+    """
     tasks = []
     gr = None
-    # legacy support to make sure that the tools are in _DEFAULT_TOOLS
-    if not tools == None:
-        set_default_tools(tools=tools)
-        
-    for t in tool_calls:
-        #functionCall = getTools(tools,t.function.name)
-        tasks.append( _callTool.s( {"tool_call_id": t.id,"function": t.function.name, "arguments" :t.function.arguments }, comboId=comboId) )
-        print('function call added to chain '+t.function.name+'('+t.function.arguments+')')
 
-    if len(tasks)>0:
-        # create a group will all the functions to call and the submit function to be called after those are done
-        gr = chord(tasks,submitToolOutputs.s(comboId) )
+    if tools is not None:
+        set_default_tools(tools=tools)
+
+    for t in tool_calls:
+        # functionCall = getTools(tools,t.function.name)
+        tasks.append(
+            _callTool.s(
+                {
+                    "tool_call_id": t.id,
+                    "function": t.function.name,
+                    "arguments": t.function.arguments,
+                },
+                combo_id=combo_id,
+            )
+        )
+        print(f"Function call added to chain {t.function.name}({t.function.arguments})")
+
+    if len(tasks) > 0:
+        # Create a group for function calls and submission
+        gr = chord(tasks, submit_tool_outputs.s(combo_id))
         gr.delay()
     return gr
 
 
-@shared_task(name="call single tool") 
-def _callTool(tool_call,comboId=None):
-    ''' call a single tool. Since this is a shared task, each individual function call 'becomes' a task
-    note that the function we're calling is not expected to be a task. It's just a function.
-    
-    Also not that we're adding the thread/run combo id string as an extra named parameter. This allows you to retrieve the callind task or the run/thread if need.
-    '''
-    functionName = tool_call['function']
-    attributes = json.loads(tool_call['arguments'])
+@shared_task(name="call single tool")
+def _callTool(tool_call: dict, comboId: Optional[str] = None) -> dict:
+    """
+    Call a single tool as a Celery task.
+
+    Args:
+        tool_call: Dictionary containing function name and arguments
+        comboId: Optional thread/run combo ID string
+
+    Returns:
+        Dictionary containing comboId and tool output
+    """
+    functionName = tool_call["function"]
+    attributes = json.loads(tool_call["arguments"])
+
     try:
+        call = _getf(functionName)
+        if call is None:
+            raise ValueError(f"Function {functionName} not found")
+
         parameter_class = None
-        call = _getf(functionName) # get the callable function object
-        # check if the function argument is params and pydantic schema, in that case instantiate the schema object and pass that
-        signature = inspect.signature(call  )
-        parameter = next(iter(signature.parameters.values()), None)  # Get the first parameter
-        if parameter and parameter.annotation and parameter.name =='params' and inspect.isclass(parameter.annotation) and issubclass(parameter.annotation, BaseModel) :
-            parameter_class = parameter.annotation  # e.g. AddLocationToCalendarEvent
-        if parameter_class:
-            # we still need a solution to add the comboId to the parameters in case of class call. The strict schema does not allow extra fields
-            attributes  = parameter_class(**attributes)
+        signature = inspect.signature(call)
+        parameter = next(iter(signature.parameters.values()), None)
+
+        if (
+            parameter
+            and parameter.annotation
+            and parameter.name == "params"
+            and inspect.isclass(parameter.annotation)
+            and issubclass(parameter.annotation, BaseModel)
+        ):
+            parameter_class = parameter.annotation
+            attributes = parameter_class(**attributes)
         else:
-            attributes['comboId'] = comboId
-        functionResponse =call(attributes) # save the response
-    except Exception as e:
+            attributes["comboId"] = comboId
+
+        functionResponse = call(attributes)
+    except Exception as exc:
         if settings.DEBUG:
-            # in debug we really like to see what went wrong 
-            raise Exception('Error in function call '+functionName+'('+tool_call['arguments']+') '+str(e))
-        functionResponse = { "status" : 'Error in function call '+functionName+'('+tool_call['arguments']+')' }
-        # we can submit this repsons back to OpenAI so that Assistant will continue and report it encountered a problem
-    tool_output =   { "tool_call_id": tool_call['tool_call_id'] , "output": json.dumps(functionResponse,default=str) }
-    return {"comboId" : comboId , "output":tool_output }
+            # in debug we really like to see what went wrong
+            raise Exception(
+                f"Error calling {functionName}: {tool_call['arguments']} - {str(exc)}"
+            )
+        functionResponse = {
+            "status": f"Error in function call {functionName}({tool_call['arguments']})"
+        }
+        # Submit error response to OpenAI for assistant to handle
+    tool_output = {
+        "tool_call_id": tool_call["tool_call_id"],
+        "output": json.dumps(functionResponse, default=str),
+    }
+    return {"comboId": comboId, "output": tool_output}
 
 
 @shared_task(name="Submit Tool Outputs")
-def submitToolOutputs(fromTools, comboId):    
-    ''' This function gets called after the last function call is completed and will submit the results back
-    to the AssistantsAPI
-    
-    fromTools is the array of outputs from each function
-    
-    After submitting we schedule the next status check to see if the run completed. 
-    '''
-    run_id = comboId.split(',')[0]
-    thread_id = comboId.split(',')[1]
-    client = OpenAI( api_key=settings.OPENAI_API_KEY)
-    print("Submit tool outputs "+run_id)
+def submit_tool_outputs(from_tools: list[dict], combo_id: str) -> str:
+    """Submit tool outputs to OpenAI API and schedule status check.
+
+    Args:
+        from_tools: List of tool outputs from function calls
+        combo_id: Combined run_id and thread_id string
+
+    Returns:
+        str: The combo_id string for chaining tasks
+    """
+    run_id = combo_id.split(",")[0]
+    thread_id = combo_id.split(",")[1]
+    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    print(f"Submit tool outputs {run_id}")
     output = []
-    for o in fromTools:
-        output.append( o["output"])
+    for tool in from_tools:
+        output.append(tool["output"])
     try:
-        run = client.beta.threads.runs.submit_tool_outputs(
-        thread_id=thread_id,
-        run_id=run_id,
-        tool_outputs=output
+        client.beta.threads.runs.submit_tool_outputs(
+            thread_id=thread_id, run_id=run_id, tool_outputs=output
         )
-    except Exception as e:
-        print('submit tool outputs failed '+str(e))
-        return comboId
-    # now schedule the next status check to see if the run is done.
-    getStatus.delay(comboId)
-    return comboId
+    except Exception as exc:
+        print(f"submit tool outputs failed: {exc}")
+        return combo_id
+
+    get_status.delay(combo_id)
+    return combo_id
 
 
-@shared_task(name="Get Run Status", retry_policy={'max_retries': 500, "interval_start":2}, rate_limit='15/m')
-def getStatus(comboId):
-    ''' Get the status of an OpenAI run and act on it
-    
-    parameters:
-        comboId - a runId,threadId combo in a string
-        we use this because of the celery parameter passing simplicity
-        
-    '''
-    run_id = comboId.split(',')[0]
-    thread_id = comboId.split(',')[1]
-    # Expects a  runid,threadid combo in a string
-    client = OpenAI( api_key=settings.OPENAI_API_KEY)
+@shared_task(
+    name="Get Run Status",
+    retry_policy={"max_retries": 500, "interval_start": 2},
+    rate_limit="15/m",
+)
+def get_status(combo_id: str) -> Optional[str]:
+    """Get OpenAI run status and handle completion or actions.
+
+    Args:
+        combo_id: Combined run_id and thread_id string for task identification
+
+    Returns:
+        Optional[str]: Task response if completed, None otherwise
+    """
+    run_id = combo_id.split(",")[0]
+    thread_id = combo_id.split(",")[1]
+    client = OpenAI(api_key=settings.OPENAI_API_KEY)
     run = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run_id)
-    if run.status == 'completed' or run.status == 'requires_action':
-        # only then do we need the object to do something with. 
+
+    if run.status == "completed" or run.status == "requires_action":
         task = OpenaiTask.objects.get(runId=run_id)
-        if task==None:
-            raise Exception('Run '+run_id+' not found in task table')
-    
-    if run.status == 'completed':
-        # Run is done! Get the response, save in the task opbject and schedule the completion call if one was 
-        # provided.
-        messages = client.beta.threads.messages.list( thread_id=task.threadId)
-        task.response =""
+        if task is None:
+            raise ValueError(f"Run {run_id} not found in task table")
+
+    if run.status == "completed":
+        # Run completed - get response and handle completion
+        # Schedule completion call if provided
+        messages = client.beta.threads.messages.list(thread_id=task.threadId)
+        task.response = ""
         for t in messages.data[0].content:
-            if t.type == 'text':
+            if t.type == "text":
                 task.response += t.text.value.strip()
             else:
-                task.response += 'file ['+t.image_file.file_id+']'
+                task.response += f"file [{t.image_file.file_id}]"
         task.status = run.status
         task.completed_at = timezone.now()
         task.save()
-        if task.completionCall != None:
-            module = task.completionCall.split(':')[0]
-            function =  task.completionCall.split(':')[1]
-            print('completion call '+task.completionCall)
-            module = importlib.import_module(module,package=__package__)
-            function = getattr(module, function)
+        if task.completionCall is not None:
+            module_name, function_name = task.completionCall.split(":")
+            print(f"Running completion call {task.completionCall}")
+            module = importlib.import_module(module_name, package=__package__)
+            function = getattr(module, function_name)
             function.delay(run_id)
-    elif run.status == 'requires_action':
+    elif run.status == "requires_action":
         tool_calls = run.required_action.submit_tool_outputs.tool_calls
-        tools = None if task.tools is None else task.tools.split(',')
-        callToolsDelay(comboId,tool_calls,tools)
+        tools = None if task.tools is None else task.tools.split(",")
+        call_tools_delay(combo_id, tool_calls, tools)
         task.status = run.status
         task.save()
-        #getStatus.retry(countdown=1, max_retries=100)
-        # no retry here - the calltoolsday will run all tools and then restart a getstatus()
-    elif run.status == 'expired' or run.status == 'failed' or run.status == 'cancelling' or run.status == 'cancelled' or run.status == 'expired':
+        # No retry - tools will restart get_status
+    elif run.status in [
+        "expired",
+        "failed",
+        "cancelling",
+        "cancelled",
+    ]:
         task = OpenaiTask.objects.get(runId=run_id)
         task.status = run.status
         task.save()
-    else:  
-        print('get status retry '+run_id+' '+run.status)
-        getStatus.retry(countdown=2, max_retries=500)
-    print('get status '+run_id+' '+task.status)
+    else:
+        print(f"get status retry {run_id} {run.status}")
+        get_status.retry(countdown=2, max_retries=500)
+    print(f"Get status {run_id} {task.status}")
     return task.response
 
-    
-class assistantTask():
-    ''' A class to manage an OpenAI assistant task
-    
-    Basic use:
-    
-    task = assistantTask(assistantName='DemoAssistant',
-        prompt='Summarize the content on this website: https://valor.vc',
-        completionCall='demo:printResult'), metadata={'ie':'vic123'}) )    
-    task.createRun()  # start the Assistant
-    
-    retrieve a task:
-    
-    task = assistantTask(run_id = taskID)
 
-    '''
+class assistantTask:
+    """Manage OpenAI assistant tasks with file handling and tool integration.
+
+    This class provides a high-level interface for creating and managing OpenAI
+    assistant tasks, including file uploads, tool integration, and response handling.
+
+    Example:
+        Create and run a new task:
+            task = assistantTask(
+                assistant_name='DemoAssistant',
+                prompt='Summarize this: https://valor.vc',
+                completion_call='demo:printResult',
+                metadata={'id': 'vic123'}
+            )
+            task.create_run()
+
+        Retrieve an existing task:
+            task = assistantTask(run_id=task_id)
+    """
+
     @property
-    def prompt(self) -> str:
+    def prompt(self) -> Optional[str]:
         return self._startPrompt
-    
-    @property
-    def task_id(self) ->str:
-        return self._task_id
 
     @property
-    def assistant_id(self) -> str:
-        return self.assistantObject.id
-    
+    def task_id(self) -> Optional[str]:
+        return getattr(self.task, "id", None)
+
     @property
-    def thread_id(self) -> str:
-        return self.threadObject.id
-    
+    def assistant_id(self) -> Optional[str]:
+        return getattr(self.assistant_object, "id", None)
+
     @property
-    def run_id(self) -> str:
-        return self.task.runId
-    
+    def thread_id(self) -> Optional[str]:
+        return getattr(self.threadObject, "id", None)
+
+    @property
+    def run_id(self) -> Optional[str]:
+        return getattr(self.task, "runId", None)
+
     @property
     def metadata(self) -> dict:
-        if self._metadata == None:
+        if self._metadata is None:
             return {}
         else:
             return self._metadata
-    
+
     @metadata.setter
     def metadata(self, value):
         self._metadata = value
-        
+
     @prompt.setter
-    def prompt(self, message:str):
+    def prompt(self, message: str):
         att = []
         visions = []
         for file in self._fileids:
-            if file['vision']:
-                visions.append(file['id'])
+            if file["vision"]:
+                visions.append(file["id"])
                 continue
-            elif file['retrieval']:
-                tools = [{'type': 'file_search'}]
+            elif file["retrieval"]:
+                tools = [{"type": "file_search"}]
             else:
-                tools = [{'type': 'code_interpreter'}]            
-            att.append( {
-                'file_id': file['id'],
-                'tools': tools  }  ) 
+                tools = [{"type": "code_interpreter"}]
+            att.append({"file_id": file["id"], "tools": tools})
         self._startPrompt = message
-        self.threadObject = self.client.beta.threads.create(messages=[] )
+        self.threadObject = self.client.beta.threads.create(messages=[])
         self._message_id = self.client.beta.threads.messages.create(
-        thread_id=self.thread_id,
-        content=message,
-        attachments= att,
-        role="user"
-            )
+            thread_id=self.thread_id, content=message, attachments=att, role="user"
+        )
         for v in visions:
             self.client.beta.threads.messages.create(
                 thread_id=self.thread_id,
-                content= [{
-                'type' : "image_file",
-                'image_file' : {"file_id": v ,'detail':'high'}}],
-                role="user"
+                content=[
+                    {
+                        "type": "image_file",
+                        "image_file": {"file_id": v, "detail": "high"},
+                    }
+                ],
+                role="user",
             )
-    
+
     @property
-    def tools(self) -> list:
-        '''Getter for tools. Returns the original tools list provided during initialization.'''
+    def tools(self) -> Optional[list[str]]:
+        """Get the list of tool identifiers configured for this task."""
         return self._tools
 
     @tools.setter
     def tools(self, incoming_tools: list):
-        '''
+        """
         Setter for tools.
         - Ensures incoming_tools is a list.
         - Adds new tools to _DEFAULT_TOOLS via set_default_tools().
         - Stores the original incoming_tools list in self._tools.
-        '''
+        """
         if not isinstance(incoming_tools, list):
-            raise ValueError("tools must be a list of tool identifiers (e.g., 'module:function')")
+            raise ValueError(
+                "tools must be a list of tool identifiers (e.g., 'module:function')"
+            )
 
         # Update _DEFAULT_TOOLS with incoming tools
         set_default_tools(tools=incoming_tools)
 
         # Store the original incoming tools
-        self._tools = incoming_tools  
-    
-    def __init__(self, **kwargs ):
-        ''' Create an assistant task
-        
-        Two modes: create a new task or retrieve an existing (probably completed) task from the database
-        
-        if run_id is provided it will retrieve the task from the database. If not it will create a new task.
-        
-        '''
-        self.client = OpenAI( api_key=settings.OPENAI_API_KEY)
+        self._tools = incoming_tools
+
+    def __init__(self, **kwargs):
+        """Create an assistant task.
+
+        Args:
+            **kwargs: Keyword arguments for task initialization
+                assistant_name: Name of the assistant to use
+                run_id/thread_id: ID of existing task to retrieve
+                prompt: Initial prompt for the assistant
+                completion_call: Function to call on completion
+                metadata: Additional task metadata
+                tools: List of tool identifiers
+
+        The class operates in two modes:
+        1. Create new task: Provide assistant_name and optional parameters
+        2. Retrieve existing task: Provide run_id or thread_id
+        """
+        self.client = OpenAI(api_key=settings.OPENAI_API_KEY)
         self._fileids = []
         self._startPrompt = None
         self._message_id = None
@@ -455,156 +529,284 @@ class assistantTask():
         self.error = None
         self.completionCall = None
         self._metadata = None
-        self._tools =None
+        self._tools = None
         for key, value in kwargs.items():
-            if key == 'run_id' or key == 'runId' or key == "comboId" or key =='thread_id' or key == 'threadId':
-                if key == 'comboId':
-                    value = value.split(',')[0]
-                if key == 'threadId' or key == 'thread_id':
-                    self.task= OpenaiTask.objects.get(threadId=value)
+            if (
+                key == "run_id"
+                or key == "runId"
+                or key == "comboId"
+                or key == "thread_id"
+                or key == "threadId"
+            ):
+                if key == "comboId":
+                    value = value.split(",")[0]
+                if key == "threadId" or key == "thread_id":
+                    self.task = OpenaiTask.objects.get(threadId=value)
                 else:
-                    self.task= OpenaiTask.objects.get(runId=value)
-                if self.task != None:
-                    self.runObject = self.client.beta.threads.runs.retrieve(run_id=self.task.runId, thread_id=self.task.threadId)
-                    if self.runObject == None:
-                        raise Exception('Run not found')
-                    else:
-                        self.status = self.runObject.status
-                        self.response = self.task.response
-                        self.threadObject = self.client.beta.threads.retrieve(thread_id=self.task.threadId)
-                        self._metadata = self.task.meta
-            elif key == 'assistantName':
-                self.assistantName = value
-                self.assistantObject = getAssistant(name=self.assistantName)
-                if self.assistantObject == None:
-                    raise Exception('Assistant '+self.assistantName+' not found in openAI call')
-            elif key == 'prompt':
-                self.prompt = value  
-            elif key == 'completionCall':
-                self.completionCall = value    
-            elif key == 'metadata':
-                self._metadata = value  
-            elif key == 'tools':
-                self.tools = value    
-     
-      
-    def createRun(self,temperature:float=1) -> str:
-        ''' Create an OpenAI run and start checking the status 
-        
-        This this will persist the task in the database - run id is the primary key. Please note that openAI needs both ThreadId and RunId 
-        to retrieve a Run. We handle that in the object so that you will only need run id. The primary key in the Taks table is the run id.
-        
-        paramaters:
-            temperature - the temperature to use for the run. Default is 1 values 0 - 2 as per OpenAI documentation
-        
-        '''
-        print('create run '+self.thread_id)
-        # Excepts an openAiTask object    
-        try:
-            run = self.client.beta.threads.runs.create(
-            thread_id=self.thread_id,
-            assistant_id= self.assistant_id,
-            temperature=temperature,
-            )
-        except Exception as e:
-            print('create thread failed '+str(e))
-            return None
-        try: 
-            self.task = OpenaiTask.objects.create( assistantId=self.assistant_id, runId=run.id, threadId=self.thread_id, completionCall=self.completionCall, tools=None if self.tools is None else ",".join(self.tools), meta = self._metadata    )
-        except Exception as e:
-            print('create run failed '+str(e))
-            return None
-        self.task.save()
-        # start the delayed status checking
-        getStatus.delay(self.task.runId+','+self.task.threadId)
-        return run.id
-     
-       
-    def jsonResponse(self):
-        ''' Try to convert the openai response to Json. When we ask openai explicitly for json it will return a string with json in it.
-            This function will try to convert that string to json. If it fails it will return None
-            OpenAI often insists on added 'json' at the begining and the triple quotes
-        '''
-        if self.response != None:
-            res = self.response.replace('json','').replace("```",'')
-            try:
-                return json.loads(res,strict=False)
-            except:
-                return None
-        
-    def markdownResponse(self, replaceThis=None, withThis=None):
-        ''' returns the response with markdown formatting - convient for rendering in chat like responses
-        '''
-        return asmarkdown(self.response,replaceThis,withThis)
-        
-        
-    def uploadFile(self,file=None,fileContent=None,filename=None,**kwargs):
-        ''' Upload a file to openAI either for the Assistant or for the Thread.
-        
-        parameters:
-            file - a file object
-            fileContent - the content of the file
-            
-            addToAssistant - if true will add the file to the assistant. If false will add it to the thread
-            *** Note addToAssistant is not currently supported due to the V2 changes. 
-            
-            filename - the name of the file. If not provided will use the name of the file object
-            All uploaded files will automatically be provided in the message to the assistant with both search and code interpreter enabled.
-        '''
-        if fileContent == None:
-            fileContent = file.read()
-        # Determine file extension
-        file_extension = filename.split('.')[-1].lower()
-        
-        # Determine if the file is an image
-        image_extensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff']
-        vision = file_extension in image_extensions
-        # Determine if the file is for retrieval
-        retrieval_extensions = [
-            'c', 'cs', 'cpp', 'doc', 'docx', 'html', 'java', 'json', 'md', 'pdf', 'php',
-            'pptx', 'py', 'rb', 'tex', 'txt', 'css', 'js', 'sh', 'ts'
-        ]
-        retrieval = file_extension in retrieval_extensions
-        
-        uploadFile = self.client.files.create( file=(filename,fileContent),purpose=('vision' if vision else 'assistants'))
-        #uploadFile = self.client.files.create( file=(filename,fileContent),purpose='assistants')
+                    self.task = OpenaiTask.objects.get(runId=value)
+                if self.task is not None:
+                    self.runObject = self.client.beta.threads.runs.retrieve(
+                        run_id=self.task.runId, thread_id=self.task.threadId
+                    )
+                    if self.runObject is None:
+                        raise ValueError("Run not found")
 
-        # Append the file information to self._fileids
-        self._fileids.append({
-            'id': uploadFile.id,
-            'filename': filename,
-            'vision': vision,
-            'retrieval': retrieval
-        })
-    
-        return uploadFile.id
-        
-    def getlastresponse(self):
-        ''' Get the last response from the assistant, returns messages.data[0] 
-        '''
-        messages = self.client.beta.threads.messages.list( thread_id=self.thread_id)
-        return messages.data[0]
-    
-    def getallmessages(self):
-        ''' Get all messages from the assistant - returns messages.data (list)
-        '''
-        messages = self.client.beta.threads.messages.list( thread_id=self.thread_id)
+                    self.status = self.runObject.status
+                    self.response = self.task.response
+                    self.threadObject = self.client.beta.threads.retrieve(
+                        thread_id=self.task.threadId
+                    )
+                    self._metadata = self.task.meta
+            elif key == "assistant_name":
+                self._assistant_name = value
+                self.assistant_object = get_assistant(name=self._assistant_name)
+                if self.assistant_object is None:
+                    msg = f"Assistant {self._assistant_name} not found in OpenAI"
+                    raise ValueError(msg)
+            elif key == "prompt":
+                self.prompt = value
+            elif key == "completion_call":
+                self.completion_call = value
+            elif key == "metadata":
+                self._metadata = value
+            elif key == "tools":
+                self.tools = value
+
+    def create_run(self, temperature: float = 1.0) -> Optional[str]:
+        """Start a new assistant run with the current thread and configuration.
+
+        Creates a new run using the configured assistant and thread, then starts
+        monitoring its status. The temperature parameter controls response
+        randomness.
+
+        Args:
+            temperature: Sampling temperature (0.0-2.0). Higher values increase
+                randomness, lower values make output more deterministic.
+
+        Returns:
+            Optional[str]: The run ID if successfully created, None if creation
+                fails
+
+        Raises:
+            ValueError: If no thread_id has been set for this task
+        """
+        if self.thread_id is None:
+            raise ValueError("Thread ID is required")
+
+        print(f"Creating run for thread {self.thread_id}")
+
+        try:
+            run_obj = self.client.beta.threads.runs.create(
+                thread_id=self.thread_id,
+                assistant_id=self.assistant_id,
+                temperature=temperature,
+            )
+        except Exception as exc:
+            print(f"Create thread failed: {exc}")
+            return None
+
+        try:
+            self.task = OpenaiTask.objects.create(
+                assistant_id=self.assistant_id,
+                run_id=run_obj.id,
+                thread_id=self.thread_id,
+                completion_call=self.completion_call,
+                tools=(None if self.tools is None else ",".join(self.tools)),
+                meta=self._metadata,
+            )
+            self.task.save()
+        except Exception as exc:
+            print(f"Create run failed: {exc}")
+            return None
+
+        get_status.delay(f"{self.task.runId},{self.task.threadId}")
+        return run_obj.id
+
+    def get_json_response(self) -> Optional[dict[str, Any]]:
+        """Parse the assistant's response as JSON data.
+
+        Automatically strips any 'json' prefix and markdown code block markers
+        from the response before attempting to parse.
+
+        Returns:
+            Optional[dict[str, Any]]: Parsed JSON data if successful, None if
+                parsing fails or no response exists
+        """
+        if self.response is not None:
+            res = self.response.replace("json", "").replace("```", "")
+            try:
+                return json.loads(res, strict=False)
+            except json.JSONDecodeError:
+                return None
+        return None
+
+    def get_markdown_response(
+        self, replace_this: Optional[str] = None, with_this: Optional[str] = None
+    ) -> Optional[str]:
+        """Format the assistant's response as markdown with optional replacement.
+
+        Args:
+            replace_this: Text to find in the response
+            with_this: Text to use as replacement
+
+        Returns:
+            Optional[str]: Markdown formatted response or None
+        """
+        return asmarkdown(self.response, replace_this, with_this)
+
+    def upload_file(
+        self,
+        file: Optional[Union[str, bytes, BinaryIO]] = None,
+        file_content: Optional[bytes] = None,
+        filename: str = "",
+        vision: bool = False,
+        retrieval: bool = False,
+        **kwargs,
+    ) -> str:
+        """Upload a file to OpenAI for use in the Thread.
+
+        Args:
+            file: File path, bytes, or file-like object to upload
+            file_content: Raw bytes content of the file if not using file parameter
+            filename: Name of the file to use
+            vision: Whether to use the file for vision tasks
+            retrieval: Whether to use the file for retrieval tasks
+            **kwargs: Additional arguments to pass to the OpenAI API
+
+        Returns:
+            str: The ID of the uploaded file from OpenAI
+
+        Raises:
+            ValueError: If filename missing or no file/content provided
+        """
+        if not filename:
+            raise ValueError("filename is required")
+
+        if file_content is None:
+            if file is None:
+                raise ValueError("Either file or file_content must be provided")
+            try:
+                if isinstance(file, str):
+                    with open(file, "rb") as f:
+                        file_content = f.read()
+                elif isinstance(file, (bytes, bytearray, memoryview)):
+                    file_content = bytes(file)
+                elif hasattr(file, "read"):
+                    try:
+                        file_content = file.read()
+                        if not isinstance(file_content, bytes):
+                            file_content = bytes(file_content)
+                    except (TypeError, AttributeError):
+                        raise ValueError("File object must support reading bytes")
+                else:
+                    raise ValueError(
+                        "File must be a path string, bytes, or file-like object"
+                    )
+            except (AttributeError, IOError) as exc:
+                raise ValueError(f"Could not read from file: {exc}")
+
+        file_extension = filename.split(".")[-1].lower()
+
+        image_extensions = ["jpg", "jpeg", "png", "gif", "bmp", "tiff"]
+        vision = vision or file_extension in image_extensions
+
+        retrieval_extensions = [
+            "c",
+            "cs",
+            "cpp",
+            "doc",
+            "docx",
+            "html",
+            "java",
+            "json",
+            "md",
+            "pdf",
+            "php",
+            "pptx",
+            "py",
+            "rb",
+            "tex",
+            "txt",
+            "css",
+            "js",
+            "sh",
+            "ts",
+        ]
+        retrieval = retrieval or file_extension in retrieval_extensions
+
+        upload_file = self.client.files.create(
+            file=(filename, file_content), purpose="vision" if vision else "assistants"
+        )
+
+        self._fileids.append(
+            {
+                "id": upload_file.id,
+                "filename": filename,
+                "vision": vision,
+                "retrieval": retrieval,
+            }
+        )
+
+        return upload_file.id
+
+    def get_last_response(self) -> Optional[dict[str, Any]]:
+        """Get the last response message from the assistant.
+
+        Returns:
+            Optional[dict[str, Any]]: Most recent message with role and content,
+                or None if no messages exist
+
+        Raises:
+            ValueError: If thread_id is not set
+        """
+        if not self.thread_id:
+            raise ValueError("Thread ID is required")
+        messages = self.client.beta.threads.messages.list(thread_id=self.thread_id)
+        return messages.data[0] if messages.data else None
+
+    def get_all_messages(self) -> list[dict[str, Any]]:
+        """Retrieve all messages from the current thread in chronological order.
+
+        Returns:
+            list[dict[str, Any]]: List of message objects containing role,
+                content, and associated metadata
+
+        Raises:
+            ValueError: If no thread_id has been set for this task
+        """
+        if not self.thread_id:
+            raise ValueError("Thread ID is required")
+        messages = self.client.beta.threads.messages.list(thread_id=self.thread_id)
         return messages.data
-    
-    def getfullresponse(self):
-        ''' Get the full text response from the assistant (concatenated text type messages)
-        traverses the messages.data list and concatenates all text messages
-        '''
-        messages = self.client.beta.threads.messages.list( thread_id=self.thread_id)
-        res = ''
+
+    def get_full_response(self) -> str:
+        """Get combined text responses from the assistant.
+
+        Returns:
+            str: Combined text content from messages
+        """
+        if not self.thread_id:
+            raise ValueError("Thread ID is required")
+        messages = self.client.beta.threads.messages.list(thread_id=self.thread_id)
+        res = ""
         for m in reversed(messages.data):
-            if m.role == 'assistant':
+            if m.role == "assistant":
                 for t in m.content:
-                    if t.type == 'text':
+                    if t.type == "text":
                         res += t.text.value
         return res
-    
-    def retrieveFile(self,file_id):
-        ''' Retrieve the FILE CONTENT of a file from OpenAI
-        '''
+
+    def retrieve_file(self, file_id: str) -> bytes:
+        """Download a file's content from OpenAI's servers.
+
+        Args:
+            file_id: OpenAI file identifier to retrieve
+
+        Returns:
+            bytes: Raw binary content of the downloaded file
+
+        Raises:
+            openai.NotFoundError: If the specified file_id does not exist
+            openai.AuthenticationError: If API authentication fails
+        """
         return self.client.files.content(file_id=file_id)

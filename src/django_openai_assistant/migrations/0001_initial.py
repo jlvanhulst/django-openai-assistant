@@ -7,23 +7,25 @@ class Migration(migrations.Migration):
 
     initial = True
 
-    dependencies = [
-    ]
+    dependencies = []
 
     operations = [
         migrations.CreateModel(
-            name='OpenaiTask',
+            name="OpenaiTask",
             fields=[
-                ('assistantId', models.CharField(max_length=64)),
-                ('runId', models.CharField(max_length=64, primary_key=True, serialize=False)),
-                ('threadId', models.CharField(max_length=64)),
-                ('status', models.CharField(default='created', max_length=64)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('completed_at', models.DateTimeField(null=True)),
-                ('response', models.TextField(null=True)),
-                ('completionCall', models.TextField(null=True)),
-                ('tools', models.TextField(null=True)),
-                ('meta', models.JSONField(null=True)),
+                ("assistantId", models.CharField(max_length=64)),
+                (
+                    "runId",
+                    models.CharField(max_length=64, primary_key=True, serialize=False),
+                ),
+                ("threadId", models.CharField(max_length=64)),
+                ("status", models.CharField(default="created", max_length=64)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("completed_at", models.DateTimeField(null=True)),
+                ("response", models.TextField(null=True)),
+                ("completionCall", models.TextField(null=True)),
+                ("tools", models.TextField(null=True)),
+                ("meta", models.JSONField(null=True)),
             ],
         ),
     ]
