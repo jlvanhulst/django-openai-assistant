@@ -95,7 +95,7 @@ def asmarkdown(
     return result
 
 
-def create_assistant(
+def _create_assistant(
     name: str,
     instructions: str,
     model: Optional[str],
@@ -116,7 +116,7 @@ def create_assistant(
         tools = list(_DEFAULT_TOOLS.keys())
     client = OpenAI(api_key=settings.OPENAI_API_KEY)
     assistant = client.beta.assistants.create(
-        name=name, instructions=instructions, tools=get_tools(tools), model=model
+        name=name, instructions=instructions, tools=_get_tools(tools), model=model
     )
     return assistant
 
@@ -186,8 +186,10 @@ def _getf(functionName: str) -> Optional[Callable]:
         return None
 
 
-def get_tools(array: list[str], value: Optional[str] = None) -> list[dict]:
+def _get_tools(array: list[str], value: Optional[str] = None) -> list[dict]:
     """Convert tool strings to callable function dictionaries.
+    
+    Internal implementation detail - not part of public API.
 
     Args:
         array: List of tool strings in the format "module:function"
@@ -206,7 +208,7 @@ def get_tools(array: list[str], value: Optional[str] = None) -> list[dict]:
     return tools
 
 
-def call_tools_delay(
+def _call_tools_delay(
     combo_id: str, tool_calls: list, tools: Optional[list] = None
 ) -> Optional[Any]:
     """Process tool calls from the Assistant API and create a Celery chord.
@@ -376,7 +378,7 @@ def get_status(combo_id: str) -> Optional[str]:
     elif run.status == "requires_action":
         tool_calls = run.required_action.submit_tool_outputs.tool_calls
         tools = None if task.tools is None else task.tools.split(",")
-        call_tools_delay(combo_id, tool_calls, tools)
+        _call_tools_delay(combo_id, tool_calls, tools)
         task.status = run.status
         task.save()
         # No retry - tools will restart get_status

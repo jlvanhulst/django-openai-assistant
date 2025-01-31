@@ -10,10 +10,10 @@ from openai.types.beta.threads.runs import ToolCall
 from django_openai_assistant.assistant import (
     asmarkdown,
     assistantTask,
-    create_assistant,
+    _create_assistant,
     get_assistant,
     set_default_tools,
-    call_tools_delay,
+    _call_tools_delay,
 )
 from django_openai_assistant.models import OpenaiTask
 
@@ -55,11 +55,12 @@ def mock_run():
         failed_at=None,
         completed_at=1234567890,
         model="gpt-4",
-        instructions=None,
+        instructions="",  # Empty string instead of None
         tools=[],
         file_ids=[],
         metadata={},
         object="thread.run",
+        parallel_tool_calls=0  # Required field
     )
 
 
@@ -117,7 +118,7 @@ def test_assistant_creation_and_configuration(
         "generic_tool1": {"module": "module1"},
         "generic_tool2": {"module": "module2"},
     }
-    new_assistant = create_assistant(
+    new_assistant = _create_assistant(
         name="New Assistant",
         tools=list(tools.keys()),
         model="gpt-4",
@@ -145,7 +146,7 @@ def test_assistant_task_with_tools(mock_openai_client, mock_assistant):
     Does NOT test actual tool implementations or external module functionality."""
 
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
-    tools = ["function1", "function2"]
+    tools = ["module:function1", "module:function2"]  # Use proper tool format
 
     # Verify tool configuration storage
     task = assistantTask(assistantName="Test Assistant", tools=tools)
@@ -262,7 +263,7 @@ def test_tool_call_handling(
 
     # Verify tool scheduling
     combo_id = f"{task.run_id},{task.thread_id}"
-    call_tools_delay(combo_id, tool_calls=[tool_call], tools=task.tools)
+    _call_tools_delay(combo_id, tool_calls=[tool_call], tools=task.tools)
     mock_celery_task.delay.assert_called_once()
 
     # Verify status update after completion
@@ -300,14 +301,15 @@ def test_thread_message_handling(mock_openai_client, mock_assistant, mock_thread
         thread_id="thread_123",
         role="assistant",
         content=[
-            MagicMock(type="text", text=MagicMock(value="Text response")),
-            MagicMock(type="image_file", image_file=MagicMock(file_id="file_123")),
+            {"type": "text", "text": {"value": "Text response"}},
+            {"type": "image_file", "image_file": {"file_id": "file_123"}}
         ],
         file_ids=["file_123"],
         assistant_id="asst_123",
         run_id="run_123",
         metadata={},
-        object="thread.message",
+        status="completed",  # Add required status field
+        object="thread.message"
     )
     mock_openai_client.beta.threads.messages.list.return_value.data = [mock_message]
 
@@ -438,12 +440,13 @@ def test_message_handling(mock_openai_client, mock_assistant, mock_thread):
         created_at=1234567890,
         thread_id="thread_123",
         role="assistant",
-        content=[MagicMock(type="text", text=MagicMock(value="Test response"))],
+        content=[{"type": "text", "text": {"value": "Test response"}}],
         file_ids=[],
         assistant_id="asst_123",
         run_id="run_123",
         metadata={},
-        object="thread.message",
+        status="completed",
+        object="thread.message"
     )
     mock_openai_client.beta.threads.messages.list.return_value.data = [mock_message]
 
@@ -493,15 +496,16 @@ def test_response_formats(mock_openai_client, mock_assistant, mock_thread):
         thread_id="thread_123",
         role="assistant",
         content=[
-            MagicMock(type="text", text=MagicMock(value="Part 1")),
-            MagicMock(type="text", text=MagicMock(value="Part 2")),
-            MagicMock(type="text", text=MagicMock(value="Part 3")),
+            {"type": "text", "text": {"value": "Part 1"}},
+            {"type": "text", "text": {"value": "Part 2"}},
+            {"type": "text", "text": {"value": "Part 3"}}
         ],
         file_ids=[],
         assistant_id="asst_123",
         run_id="run_123",
         metadata={},
-        object="thread.message",
+        status="completed",
+        object="thread.message"
     )
     mock_openai_client.beta.threads.messages.list.return_value.data = [mock_message]
 
@@ -551,14 +555,13 @@ Some text
         created_at=1234567890,
         thread_id="thread_123",
         role="assistant",
-        content=[
-            MagicMock(type="text", text=MagicMock(value="Error: Invalid request"))
-        ],
+        content=[{"type": "text", "text": {"value": "Error: Invalid request"}}],
         file_ids=[],
         assistant_id="asst_123",
         run_id="run_123",
         metadata={"error": True},
-        object="thread.message",
+        status="completed",
+        object="thread.message"
     )
     mock_openai_client.beta.threads.messages.list.return_value.data = [mock_message]
     error_response = task.get_full_response()
