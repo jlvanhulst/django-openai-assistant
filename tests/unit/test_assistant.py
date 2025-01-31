@@ -428,6 +428,114 @@ def test_celery_integration(mock_openai_client, mock_assistant, mock_thread, moc
     status = get_status(f"{task.run_id},{task.thread_id}")
     assert task.task.status == "failed"
     
+def test_vision_support(mock_openai_client, mock_assistant, mock_thread, mock_run):
+    mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
+    mock_openai_client.beta.threads.create.return_value = mock_thread
+    
+    task = assistantTask(assistantName="Test Assistant")
+    
+    # Test image file upload with vision support
+    mock_image = MagicMock()
+    mock_image.name = "test.png"
+    mock_image.read.return_value = b"image content"
+    
+    mock_openai_client.files.create.return_value = MagicMock(
+        id="file_123",
+        filename="test.png",
+        bytes=len(b"image content"),
+        purpose="assistants",
+        created_at=1234567890,
+        content_type="image/png"
+    )
+    
+    file_id = task.upload_file(file=mock_image)
+    assert file_id == "file_123"
+    assert task._fileids[-1]["vision"] is True
+    assert task._fileids[-1]["retrieval"] is False
+    
+    # Test vision analysis with image
+    mock_message = Message(
+        id="msg_123",
+        created_at=1234567890,
+        thread_id="thread_123",
+        role="assistant",
+        content=[
+            MagicMock(
+                type="image_file",
+                image_file=MagicMock(file_id="file_123")
+            ),
+            MagicMock(
+                type="text",
+                text=MagicMock(value="The image shows a test pattern")
+            )
+        ],
+        file_ids=["file_123"],
+        assistant_id="asst_123",
+        run_id="run_123",
+        metadata={},
+        object="thread.message"
+    )
+    mock_openai_client.beta.threads.messages.list.return_value.data = [mock_message]
+    
+    task.prompt = "Analyze this image"
+    run_id = task.create_run()
+    assert run_id == mock_run.id
+    
+    response = task.get_full_response()
+    assert "The image shows a test pattern" in response
+    
+    # Test multiple image handling
+    mock_image2 = MagicMock()
+    mock_image2.name = "test2.jpg"
+    mock_image2.read.return_value = b"second image content"
+    
+    mock_openai_client.files.create.return_value = MagicMock(
+        id="file_456",
+        filename="test2.jpg",
+        bytes=len(b"second image content"),
+        purpose="assistants",
+        created_at=1234567890,
+        content_type="image/jpeg"
+    )
+    
+    file_id2 = task.upload_file(file=mock_image2)
+    assert file_id2 == "file_456"
+    assert task._fileids[-1]["vision"] is True
+    
+    # Test email with inline images
+    mock_message.content = [
+        MagicMock(
+            type="text",
+            text=MagicMock(value="Here are the analyzed images:")
+        ),
+        MagicMock(
+            type="image_file",
+            image_file=MagicMock(file_id="file_123")
+        ),
+        MagicMock(
+            type="image_file",
+            image_file=MagicMock(file_id="file_456")
+        )
+    ]
+    mock_message.file_ids = ["file_123", "file_456"]
+    
+    response = task.get_full_response()
+    assert "Here are the analyzed images" in response
+    
+    # Test image file deletion
+    task.delete_file("file_123")
+    mock_openai_client.files.delete.assert_called_with(file_id="file_123")
+    
+    # Test vision support with different file types
+    image_types = [".png", ".jpg", ".jpeg", ".webp"]
+    for ext in image_types:
+        mock_file = MagicMock()
+        mock_file.name = f"test{ext}"
+        mock_file.read.return_value = b"image content"
+        file_id = task.upload_file(file=mock_file)
+        assert task._fileids[-1]["vision"] is True
+        assert task._fileids[-1]["retrieval"] is False
+
 def test_error_handling(mock_openai_client, mock_assistant, mock_thread, mock_run):
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
