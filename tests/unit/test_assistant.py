@@ -236,7 +236,7 @@ def test_create_run(mock_openai_client, mock_assistant, mock_thread, mock_run):
 
     task = assistantTask(assistantName="Test Assistant")
     task.prompt = "Test prompt"
-    run_id = task.create_run(temperature=0.7)
+    run_id = task.createRun(temperature=0.7)
 
     assert run_id == "run_123"
     assert task.threadObject and task.threadObject.id == "thread_123"
@@ -295,7 +295,7 @@ def test_tool_call_handling(
     mock_openai_client.beta.threads.runs.create.return_value = mock_run
 
     task.prompt = "Test prompt"
-    run_id = task.create_run()
+    run_id = task.createRun()
     assert run_id == "run_123"
     assert task.status == "requires_action"
 
@@ -368,7 +368,7 @@ def test_thread_message_handling(mock_openai_client, mock_assistant, mock_thread
     ]
 
     # Verify message list retrieval and ordering
-    messages = task.get_all_messages()
+    messages = task.getAllMessages()
     assert len(messages) == 2
     assert messages[0]["id"] == "msg_124"  # Most recent first
     assert messages[1]["id"] == "msg_123"
@@ -378,7 +378,7 @@ def test_thread_message_handling(mock_openai_client, mock_assistant, mock_thread
     assert all(msg["assistant_id"] == "asst_123" for msg in messages)
 
     # Test thread message count
-    assert len(task.get_all_messages()) == 2
+    assert len(task.getAllMessages()) == 2
 
 
 def test_metadata_management(mock_openai_client, mock_assistant, mock_thread, mock_run):
@@ -448,7 +448,7 @@ def test_file_upload(mock_openai_client, mock_assistant):
 
     # Test content upload
     content = b"test content"
-    file_id = task.upload_file(file_content=content, filename="test.txt")
+    file_id = task.uploadFile(file_content=content, filename="test.txt")
     assert file_id == "file_123"
     assert len(task._fileids) == 1
 
@@ -456,7 +456,7 @@ def test_file_upload(mock_openai_client, mock_assistant):
     mock_file = MagicMock()
     mock_file.name = "test.txt"
     mock_file.read.return_value = b"test content"
-    file_id = task.upload_file(file=mock_file)
+    file_id = task.uploadFile(file=mock_file)
     assert file_id == "file_123"
     assert len(task._fileids) == 2
 
@@ -522,19 +522,19 @@ def test_message_handling(mock_openai_client, mock_assistant, mock_thread):
     task.threadObject = mock_thread
 
     # Test content extraction and formatting
-    response = task.get_full_response()
+    response = task.getFullResponse()
     assert "Response 1" in response
     assert "Response 2" in response
     assert "User input" not in response  # User messages not included
 
     # Test role-specific handling
-    messages = task.get_all_messages()
+    messages = task.getAllMessages()
     assert len(messages) == 2
     assert messages[0]["role"] == "user"
     assert messages[1]["role"] == "assistant"
 
     # Test last response handling
-    last_response = task.get_last_response()
+    last_response = task.getLastResponse()
     assert last_response is not None
     assert isinstance(last_response, dict)
     assert last_response.get("role") == "user"  # Most recent message
@@ -563,7 +563,7 @@ def test_response_formats(mock_openai_client, mock_assistant, mock_thread):
 
     # Test JSON extraction and validation
     task.response = '{"key": "value", "nested": {"array": [1, 2, 3]}}'
-    json_response = task.get_json_response()
+    json_response = task.getJsonResponse()
     assert isinstance(json_response, dict)
     assert json_response.get("key") == "value"
     assert isinstance(json_response.get("nested"), dict)
@@ -578,18 +578,18 @@ Some text
 ```json
 {"key": "value"}
 ```"""
-    json_response = task.get_json_response()
+    json_response = task.getJsonResponse()
     assert json_response == {"key": "value"}
 
     # Test markdown formatting
-    markdown_response = task.get_markdown_response()
+    markdown_response = task.getMarkdownResponse()
     assert isinstance(markdown_response, str)
     assert "```python" in markdown_response
     assert "```json" in markdown_response
 
     # Test markdown replacements
     task.response = "**bold** *italic* [link](https://example.com)"
-    markdown_response = task.get_markdown_response(
+    markdown_response = task.getMarkdownResponse(
         replace_this="example.com", with_this="test.com"
     )
     assert isinstance(markdown_response, str)
@@ -598,21 +598,21 @@ Some text
 
     # Test multi-part message concatenation
     task.response = "Part 1\nPart 2\nPart 3"
-    full_response = task.get_full_response()
+    full_response = task.getFullResponse()
     assert "Part 1" in full_response
     assert "Part 2" in full_response
     assert "Part 3" in full_response
 
     # Test error response handling
     task.response = "Error: Invalid request"
-    error_response = task.get_full_response()
+    error_response = task.getFullResponse()
     assert "Error:" in error_response
 
     # Test null response handling
     task.response = None
-    assert task.get_json_response() is None
-    assert task.get_markdown_response() is None
-    assert task.get_full_response() is None
+    assert task.getJsonResponse() is None
+    assert task.getMarkdownResponse() is None
+    assert task.getFullResponse() is None
 
 
 def test_asmarkdown_function():
@@ -674,7 +674,7 @@ def test_celery_task_scheduling(
 
     task = assistantTask(assistantName="Test Assistant", completionCall="test:callback")
     task.prompt = "Test task"
-    run_id = task.create_run()
+    run_id = task.createRun()
 
     mock_celery_task.delay.assert_called_once_with(
         run_id=run_id,
@@ -734,7 +734,7 @@ def test_vision_file_handling(
     )
 
     # Test file upload and metadata
-    file_id = task.upload_file(file=mock_image)
+    file_id = task.uploadFile(file=mock_image)
     assert file_id == "file_123"
     assert task._fileids[-1]["vision"] is True
     assert task._fileids[-1]["id"] == "file_123"
@@ -758,12 +758,12 @@ def test_vision_file_handling(
     mock_openai_client.beta.threads.messages.list.return_value.data = [mock_message]
 
     # Test response formatting
-    response = task.get_full_response()
+    response = task.getFullResponse()
     assert "Image description" in response
     assert "file_123" in response
 
     # Verify message metadata
-    messages = task.get_all_messages()
+    messages = task.getAllMessages()
     assert len(messages) == 1
     assert messages[0]["metadata"].get("vision") is True
     assert "file_123" in messages[0]["file_ids"]
@@ -795,7 +795,7 @@ def test_completion_call_handling(
     assert task.completion_call == "test:callback"
 
     # Test callback scheduling on run creation
-    run_id = task.create_run()
+    run_id = task.createRun()
     assert run_id == mock_run.id
     mock_celery_task.delay.assert_called_with(
         run_id=run_id,
@@ -871,7 +871,7 @@ def test_file_message_handling(
     mock_openai_client.beta.threads.messages.list.return_value.data = [mock_message]
 
     # Test response formatting with file references
-    response = task.get_full_response()
+    response = task.getFullResponse()
     assert "File response" in response
     assert "file_123" in response  # Verify file reference is included
 
@@ -962,7 +962,7 @@ def test_error_handling(mock_openai_client, mock_assistant, mock_thread):
     # Test method preconditions
     task = assistantTask(assistantName="Test Assistant")
     with pytest.raises(ValueError, match="Thread"):
-        task.get_all_messages()  # Missing thread ID
+        task.getAllMessages()  # Missing thread ID
 
     # Test assistant lookup failure
     mock_openai_client.beta.assistants.list.return_value.data = []
@@ -975,7 +975,7 @@ def test_error_handling(mock_openai_client, mock_assistant, mock_thread):
     )
     task = assistantTask(assistantName="Test Assistant")
     task.threadObject = mock_thread
-    assert task.create_run() is None
+    assert task.createRun() is None
     assert task.task.status == "failed"
 
     # Test tool error handling
