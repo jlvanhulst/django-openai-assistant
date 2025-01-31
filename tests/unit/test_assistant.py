@@ -65,8 +65,24 @@ def mock_run():
         object="thread.run"
     )
 
-def test_assistant_creation_and_configuration(mock_openai_client, mock_assistant):
+def test_assistant_creation_and_configuration(mock_openai_client, mock_assistant, mock_thread, mock_run):
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
+    
+    # Test initialization with comboId
+    combo_id = f"{mock_run.id},{mock_thread.id}"
+    task = assistantTask(comboId=combo_id)
+    assert task.run_id == mock_run.id
+    assert task.thread_id == mock_thread.id
+    
+    # Test initialization with metadata
+    metadata = {"id": "test123", "sobject": "Account"}
+    task = assistantTask(
+        assistantName="Test Assistant",
+        metadata=metadata,
+        completionCall="test:callback"
+    )
+    assert task.metadata == metadata
+    assert task.completion_call == "test:callback"
     mock_openai_client.beta.assistants.create.return_value = mock_assistant
     
     # Test basic initialization
@@ -140,11 +156,21 @@ def test_create_run(mock_openai_client, mock_assistant, mock_thread, mock_run):
     run_id = task.create_run(temperature=0.7)
     
     assert run_id == "run_123"
-    assert task.threadObject.id == "thread_123"
+    assert task.threadObject and task.threadObject.id == "thread_123"
     assert task.task.runId == "run_123"
 
 def test_tool_calling_and_completion(mock_openai_client, mock_assistant, mock_thread, mock_run):
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
+    
+    # Test completion callback functionality
+    task = assistantTask(
+        assistantName="Test Assistant",
+        completionCall="test:callback",
+        metadata={"id": "test123"}
+    )
+    assert task.completion_call == "test:callback"
+    
+    # Test tool calling with completion
     mock_openai_client.beta.threads.create.return_value = mock_thread
     
     # Test tool calling with Pydantic model
@@ -200,9 +226,10 @@ def test_tool_calling_and_completion(mock_openai_client, mock_assistant, mock_th
     task.threadObject = mock_thread
     task.runObject = mock_run
     
-    status = task.get_run_status()
-    assert status == "completed"
-    assert task.task.completion_call == "test_callback"
+    from django_openai_assistant.assistant import get_status
+    status = get_status(f"{task.run_id},{task.thread_id}")
+    assert status == task.response
+    assert task.task.status == "completed"
 
 def test_thread_message_handling(mock_openai_client, mock_assistant, mock_thread):
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
@@ -235,9 +262,10 @@ def test_thread_message_handling(mock_openai_client, mock_assistant, mock_thread
     # Test message retrieval
     messages = task.get_all_messages()
     assert len(messages) == 1
-    assert isinstance(messages[0], Message)
-    assert messages[0].id == "msg_123"
-    assert len(messages[0].content) == 2
+    message = messages[0]
+    assert isinstance(message, dict)
+    assert message["id"] == "msg_123"
+    assert len(message["content"]) == 2
     
     # Test full response formatting
     full_response = task.get_full_response()
@@ -271,11 +299,12 @@ def test_run_status_tracking(mock_openai_client, mock_assistant, mock_thread, mo
         task.threadObject = mock_thread
         task.runObject = mock_run
         
-        current_status = task.get_run_status()
-        assert current_status == status
+        from django_openai_assistant.assistant import get_status
+        current_status = get_status(f"{task.run_id},{task.thread_id}")
+        assert task.task.status == status
         
         if status == "completed":
-            assert task.task.completion_call == "test_callback"
+            assert task.completion_call == "test_callback"
         elif status == "requires_action":
             assert task.task.status == "requires_action"
 
@@ -334,11 +363,14 @@ def test_message_handling(mock_openai_client, mock_assistant, mock_thread):
     # Test message retrieval methods
     last_response = task.get_last_response()
     assert last_response is not None
-    assert last_response.id == "msg_123"
+    assert isinstance(last_response, dict)
+    assert last_response["id"] == "msg_123"
     
     all_messages = task.get_all_messages()
     assert len(all_messages) == 1
-    assert all_messages[0].id == "msg_123"
+    message = all_messages[0]
+    assert isinstance(message, dict)
+    assert message["id"] == "msg_123"
     
     full_response = task.get_full_response()
     assert full_response == "Test response"
@@ -417,5 +449,6 @@ def test_error_handling(mock_openai_client, mock_assistant, mock_thread, mock_ru
         assistant_id="asst_123"
     )
     task.runObject = mock_run
-    status = task.get_run_status()
-    assert status == "failed"
+    from django_openai_assistant.assistant import get_status
+    status = get_status(f"{task.run_id},{task.thread_id}")
+    assert task.task.status == "failed"
