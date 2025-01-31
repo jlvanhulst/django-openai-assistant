@@ -22,7 +22,9 @@ dev = [
     "pytest",
     "pytest-django",
     "pytest-mock",
-    "pytest-asyncio"
+    "pytest-asyncio",
+    "celery",
+    "redis"
 ]
 
 [tool.black]
