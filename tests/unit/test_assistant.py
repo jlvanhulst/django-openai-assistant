@@ -9,7 +9,7 @@ from openai.types.beta.threads import Message, Run
 from django_openai_assistant.assistant import (
     asmarkdown,
     assistantTask,
-    _create_assistant,
+    createAssistant,
     get_assistant,
     set_default_tools,
 )
@@ -118,7 +118,7 @@ def test_assistant_creation_and_configuration(
         "generic_tool1": {"module": "module1"},
         "generic_tool2": {"module": "module2"},
     }
-    new_assistant = _create_assistant(
+    new_assistant = createAssistant(
         name="New Assistant",
         tools=list(tools.keys()),
         model="gpt-4",
