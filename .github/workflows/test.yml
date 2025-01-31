@@ -28,7 +28,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install django pytest pytest-django pytest-mock pytest-asyncio celery redis black flake8 markdown-link-attr-modifier
+        pip install django pytest pytest-django pytest-mock pytest-asyncio celery redis black flake8 markdown-link-attr-modifier pydantic openai
         pip install -e .
     - name: Run lint
       run: |
@@ -38,10 +38,12 @@ jobs:
       env:
         DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        REDIS_URL: ${{ secrets.REDIS_URL }}
+        REDIS_URL: "redis://localhost:6379/0"
         DJANGO_SETTINGS_MODULE: "tests.test_settings"
         PYTHONPATH: "."
-        CELERY_BROKER_URL: ${{ secrets.REDIS_URL }}
-        CELERY_RESULT_BACKEND: ${{ secrets.REDIS_URL }}
+        CELERY_BROKER_URL: "redis://localhost:6379/0"
+        CELERY_RESULT_BACKEND: "redis://localhost:6379/0"
+        DJANGO_DB_NAME: ":memory:"
+        DJANGO_DB_ENGINE: "django.db.backends.sqlite3"
       run: |
         python -m pytest tests/ -v --no-migrations --reuse-db
