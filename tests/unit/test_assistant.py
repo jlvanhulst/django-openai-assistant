@@ -1,6 +1,7 @@
 import json
 from unittest.mock import MagicMock
 
+import openai
 import pytest
 from openai.types.beta import Assistant, Thread
 from openai.types.beta.threads import Message, Run
