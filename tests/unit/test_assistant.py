@@ -68,6 +68,7 @@ def mock_run():
     )
 
 
+@pytest.mark.django_db
 def test_assistant_creation_and_configuration(
     mock_openai_client, mock_assistant, mock_thread, mock_run
 ):
@@ -141,6 +142,7 @@ def test_assistant_creation_and_configuration(
     assert isinstance(assistants[0].tools, list)
 
 
+@pytest.mark.django_db
 def test_assistant_task_with_tools(mock_openai_client, mock_assistant):
     """Test the assistantTask's tool configuration storage.
 
@@ -221,6 +223,7 @@ def test_set_default_tools():
         set_default_tools(tools=["module:function:extra"])
 
 
+@pytest.mark.django_db
 def test_create_run(mock_openai_client, mock_assistant, mock_thread, mock_run):
     """Test assistantTask's run creation and management.
 
@@ -249,6 +252,7 @@ def test_create_run(mock_openai_client, mock_assistant, mock_thread, mock_run):
     assert task.task.runId == "run_123"
 
 
+@pytest.mark.django_db
 def test_tool_call_handling(
     mock_openai_client, mock_assistant, mock_thread, mock_run, mock_celery_task
 ):
@@ -320,6 +324,7 @@ def test_tool_call_handling(
     mock_celery_task.delay.assert_called_with(f"{run_id},{task.thread_id}")
 
 
+@pytest.mark.django_db
 def test_thread_message_handling(mock_openai_client, mock_assistant, mock_thread):
     """Test assistantTask's thread-level message operations.
 
@@ -387,6 +392,7 @@ def test_thread_message_handling(mock_openai_client, mock_assistant, mock_thread
     assert len(task.getAllMessages()) == 2
 
 
+@pytest.mark.django_db
 def test_metadata_management(mock_openai_client, mock_assistant, mock_thread, mock_run):
     """Test core metadata functionality of assistantTask.
 
@@ -432,6 +438,7 @@ def test_metadata_management(mock_openai_client, mock_assistant, mock_thread, mo
     assert task2.metadata == {"other": "value"}
 
 
+@pytest.mark.django_db
 def test_file_upload(mock_openai_client, mock_assistant):
     """Test basic file upload functionality.
 
@@ -547,6 +554,7 @@ def test_message_handling(mock_openai_client, mock_assistant, mock_thread):
     assert last_response.get("role") == "user"  # Most recent message
 
 
+@pytest.mark.django_db
 def test_response_formats(mock_openai_client, mock_assistant, mock_thread):
     """Test assistantTask's response format handling.
 
@@ -709,6 +717,7 @@ def test_celery_task_scheduling(
     )
 
 
+@pytest.mark.django_db
 def test_vision_file_handling(
     mock_openai_client, mock_assistant, mock_thread, mock_run
 ):
@@ -777,6 +786,7 @@ def test_vision_file_handling(
     assert "file_123" in messages[0]["file_ids"]
 
 
+@pytest.mark.django_db
 def test_completion_call_handling(
     mock_openai_client, mock_assistant, mock_thread, mock_run, mock_celery_task
 ):
@@ -868,14 +878,21 @@ def test_file_message_handling(
         thread_id="thread_123",
         role="assistant",
         content=[
-            {"type": "text", "text": {"value": "File response"}},
-            {"type": "file", "file_id": "file_123"},
+            {
+                "type": "text",
+                "text": {
+                    "value": "File response",
+                    "annotations": []
+                }
+            }
         ],
         file_ids=["file_123"],
         assistant_id="asst_123",
         run_id=mock_run.id,
         metadata={},
-        object="thread.message",
+        created_at=1234567890,
+        status="completed",
+        object="thread.message"
     )
     mock_openai_client.beta.threads.messages.list.return_value.data = [mock_message]
 
@@ -890,6 +907,7 @@ def test_file_message_handling(
     assert "file_123" in messages[0]["file_ids"]
 
 
+@pytest.mark.django_db
 def test_api_key_validation(mock_openai_client):
     """Test assistantTask's API key validation.
 
