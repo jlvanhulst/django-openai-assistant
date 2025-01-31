@@ -884,21 +884,79 @@ def test_error_handling(mock_openai_client, mock_assistant, mock_thread, mock_ru
     with pytest.raises(ValueError, match="tools must be.*"):
         assistantTask(assistantName="Test Assistant", tools="invalid")
     
-    # Test run creation failure
-    mock_openai_client.beta.threads.runs.create.side_effect = Exception("API Error")
+    # Test API rate limiting
+    mock_openai_client.beta.threads.runs.create.side_effect = openai.RateLimitError(
+        "Rate limit exceeded",
+        response=MagicMock(status_code=429)
+    )
     task = assistantTask(assistantName="Test Assistant")
     task.threadObject = mock_thread
     assert task.create_run() is None
+    assert task.task.status == "failed"
     
-    # Test run status handling
-    mock_run.status = "failed"
+    # Test API timeout
+    mock_openai_client.beta.threads.runs.create.side_effect = openai.APITimeoutError(
+        "Request timed out"
+    )
+    assert task.create_run() is None
+    assert task.task.status == "failed"
+    
+    # Test API connection error
+    mock_openai_client.beta.threads.runs.create.side_effect = openai.APIConnectionError(
+        "Connection error"
+    )
+    assert task.create_run() is None
+    assert task.task.status == "failed"
+    
+    # Test invalid file upload
+    mock_file = MagicMock()
+    mock_file.name = "test.exe"
+    mock_file.read.return_value = b"invalid content"
+    mock_openai_client.files.create.side_effect = openai.BadRequestError(
+        "Unsupported file type",
+        response=MagicMock(status_code=400)
+    )
+    with pytest.raises(ValueError, match="File upload failed"):
+        task.upload_file(file=mock_file)
+    
+    # Test tool call errors
+    mock_run.status = "requires_action"
+    mock_run.required_action = MagicMock(
+        submit_tool_outputs=MagicMock(tool_calls=[
+            ToolCall(
+                id="call_123",
+                type="function",
+                function=MagicMock(
+                    name="invalid_function",
+                    arguments="{}"
+                )
+            )
+        ])
+    )
     mock_openai_client.beta.threads.runs.retrieve.return_value = mock_run
     task.task = OpenaiTask.objects.create(
         runId="run_123",
         threadId="thread_123",
-        assistant_id="asst_123"
+        assistant_id="asst_123",
+        status="requires_action"
     )
     task.runObject = mock_run
+    
+    # Test tool call timeout
+    mock_openai_client.beta.threads.runs.submit_tool_outputs.side_effect = openai.APITimeoutError(
+        "Tool call timed out"
+    )
+    task.handle_tool_calls()
+    assert task.task.status == "failed"
+    
+    # Test run status handling
+    mock_run.status = "failed"
+    mock_run.last_error = MagicMock(code="rate_limit_exceeded")
+    mock_openai_client.beta.threads.runs.retrieve.return_value = mock_run
+    task.task.status = "failed"
+    task.task.save()
+    
     from django_openai_assistant.assistant import get_status
     status = get_status(f"{task.run_id},{task.thread_id}")
     assert task.task.status == "failed"
+    assert task.task.error_code == "rate_limit_exceeded"
