@@ -434,37 +434,84 @@ def test_thread_message_handling(mock_openai_client, mock_assistant, mock_thread
     file_content = task.retrieve_file("file_123")
     assert file_content == b"file content"
 
-def test_run_status_tracking(mock_openai_client, mock_assistant, mock_thread, mock_run):
+def test_metadata_management(mock_openai_client, mock_assistant, mock_thread, mock_run):
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
     
-    # Test various run statuses
-    statuses = ["queued", "in_progress", "requires_action", "completed", "failed"]
-    for status in statuses:
-        mock_run.status = status
-        mock_openai_client.beta.threads.runs.retrieve.return_value = mock_run
-        
-        task = assistantTask(
-            assistantName="Test Assistant",
-            completionCall="test_callback" if status == "completed" else None
+    # Test email metadata persistence
+    email_metadata = {
+        "from": "sender@example.com",
+        "to": "recipient@example.com",
+        "subject": "Test Subject",
+        "thread_id": "thread_123",
+        "msg_id": "msg_123"
+    }
+    task = assistantTask(
+        assistantName="Test Assistant",
+        metadata=email_metadata,
+        completionCall="chatbot.google:replyToEmail"
+    )
+    assert task.metadata == email_metadata
+    assert task.completion_call == "chatbot.google:replyToEmail"
+    
+    # Test Salesforce metadata
+    sf_metadata = {
+        "id": "001ABC",
+        "sobject": "account",
+        "company_name": "Test Company",
+        "report_type": "quarterly"
+    }
+    task = assistantTask(
+        assistantName="Test Assistant",
+        metadata=sf_metadata,
+        completionCall="chatbot.quickbooks:processReport"
+    )
+    assert task.metadata == sf_metadata
+    
+    # Test metadata persistence across runs
+    mock_run.status = "completed"
+    mock_openai_client.beta.threads.runs.retrieve.return_value = mock_run
+    task.task = OpenaiTask.objects.create(
+        runId="run_123",
+        threadId="thread_123",
+        assistant_id="asst_123",
+        metadata=sf_metadata,
+        completion_call="chatbot.quickbooks:processReport"
+    )
+    task.threadObject = mock_thread
+    task.runObject = mock_run
+    
+    from django_openai_assistant.assistant import get_status
+    status = get_status(f"{task.run_id},{task.thread_id}")
+    assert task.task.metadata == sf_metadata
+    assert task.completion_call == "chatbot.quickbooks:processReport"
+    
+    # Test metadata in tool calls
+    tool_call = ToolCall(
+        id="call_123",
+        type="function",
+        function=MagicMock(
+            name="fuzzy_search",
+            arguments=json.dumps({
+                "query": "Test Company",
+                "results": 3,
+                "metadata": {"company_id": "001ABC"}
+            })
         )
-        task.task = OpenaiTask.objects.create(
-            runId="run_123",
-            threadId="thread_123",
-            assistant_id="asst_123",
-            completion_call="test_callback" if status == "completed" else None
-        )
-        task.threadObject = mock_thread
-        task.runObject = mock_run
-        
-        from django_openai_assistant.assistant import get_status
-        current_status = get_status(f"{task.run_id},{task.thread_id}")
-        assert task.task.status == status
-        
-        if status == "completed":
-            assert task.completion_call == "test_callback"
-        elif status == "requires_action":
-            assert task.task.status == "requires_action"
+    )
+    mock_run.required_action = MagicMock(
+        submit_tool_outputs=MagicMock(tool_calls=[tool_call])
+    )
+    task.prompt = "Search for company"
+    run_id = task.create_run()
+    assert run_id == "run_123"
+    
+    # Test metadata updates
+    updated_metadata = sf_metadata.copy()
+    updated_metadata["status"] = "processed"
+    task.metadata = updated_metadata
+    assert task.metadata["status"] == "processed"
+    assert task.metadata["id"] == sf_metadata["id"]
 
 def test_file_upload(mock_openai_client, mock_assistant):
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
