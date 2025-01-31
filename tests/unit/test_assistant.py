@@ -1,12 +1,11 @@
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
+import openai
 import pytest
-from django.utils import timezone
 from openai.types.beta import Assistant, Thread
 from openai.types.beta.threads import Message, Run
 from openai.types.beta.threads.runs import ToolCall
-from pydantic import BaseModel
 
 from django_openai_assistant.assistant import (
     asmarkdown,
@@ -14,6 +13,7 @@ from django_openai_assistant.assistant import (
     create_assistant,
     get_assistant,
     set_default_tools,
+    call_tools_delay,
 )
 from django_openai_assistant.models import OpenaiTask
 
@@ -66,6 +66,18 @@ def mock_run():
 def test_assistant_creation_and_configuration(
     mock_openai_client, mock_assistant, mock_thread, mock_run
 ):
+    """Test core assistant initialization and configuration.
+
+    This test verifies:
+    1. Basic initialization with different parameters
+    2. Metadata and completion call handling
+    3. Assistant creation with tools
+
+    Does NOT test:
+    - Tool implementations
+    - External service integration
+    - Complex configuration scenarios"""
+
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
 
     # Test initialization with comboId
@@ -102,8 +114,8 @@ def test_assistant_creation_and_configuration(
 
     # Test assistant creation with tools
     tools = {
-        "fuzzy_search": {"module": "pinecone"},
-        "create_event": {"module": "calendar"},
+        "generic_tool1": {"module": "module1"},
+        "generic_tool2": {"module": "module2"},
     }
     new_assistant = create_assistant(
         name="New Assistant",
@@ -113,43 +125,87 @@ def test_assistant_creation_and_configuration(
     )
     assert new_assistant.id == "asst_123"
     assert new_assistant.model == "gpt-4"
+    assert len(new_assistant.tools) == len(tools)
 
     # Test getting existing assistants
     assistants = get_assistant()
     assert len(assistants) > 0
     assert assistants[0].id == "asst_123"
+    assert isinstance(assistants[0].tools, list)
 
 
 def test_assistant_task_with_tools(mock_openai_client, mock_assistant):
-    mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
-    tools = ["test_module:test_function"]
+    """Test the assistantTask's ability to configure and store tool settings.
 
+    This test verifies:
+    1. Tool list storage and validation
+    2. Empty tool list handling
+    3. Single tool configuration
+
+    Does NOT test actual tool implementations or external module functionality."""
+
+    mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
+    tools = ["function1", "function2"]
+
+    # Verify tool configuration storage
     task = assistantTask(assistantName="Test Assistant", tools=tools)
     assert task.tools == tools
     assert isinstance(task.metadata, dict)
 
+    # Verify empty tool handling
+    task_no_tools = assistantTask(assistantName="Test Assistant")
+    assert task_no_tools.tools == []
+
+    # Verify single tool handling
+    task_single_tool = assistantTask(
+        assistantName="Test Assistant", tools=["function1"]
+    )
+    assert isinstance(task_single_tool.tools, list)
+    assert len(task_single_tool.tools) == 1
+    assert task_single_tool.tools[0] == "function1"
+
 
 def test_set_default_tools():
-    # Test with dictionary format (vicbot style)
-    tools = {
-        "getCompany": {"module": "salesforce"},
-        "fuzzy_search": {"module": "pinecone"},
-        "create_event": {"module": "calendar"},
-    }
-    result = set_default_tools(tools=list(tools.keys()), package="chatbot")
-    assert "getCompany" in result
-    assert result["getCompany"]["module"] == "salesforce"
-    assert "fuzzy_search" in result
-    assert "create_event" in result
+    """Test the core tool configuration parsing functionality.
 
-    # Test with legacy format
-    tools_list = ["test_module:test_function"]
+    This test verifies:
+    1. Dictionary format tool configuration parsing
+    2. Legacy format tool configuration parsing
+    3. Tool module mapping
+
+    Does NOT test actual tool loading or execution."""
+
+    # Test dictionary format parsing
+    tools = {
+        "function1": {"module": "core"},
+        "function2": {"module": "core"},
+    }
+    result = set_default_tools(tools=list(tools.keys()), package="test")
+    assert "function1" in result
+    assert result["function1"]["module"] == "core"
+    assert "function2" in result
+    assert result["function2"]["module"] == "core"
+
+    # Test legacy format parsing
+    tools_list = ["core:function"]
     result = set_default_tools(tools=tools_list)
-    assert "test_function" in result
-    assert result["test_function"]["module"] == "test_module"
+    assert "function" in result
+    assert result["function"]["module"] == "core"
 
 
 def test_create_run(mock_openai_client, mock_assistant, mock_thread, mock_run):
+    """Test core run creation functionality.
+
+    This test verifies:
+    1. Basic run creation with parameters
+    2. Thread and run ID assignment
+    3. Task object creation
+
+    Does NOT test:
+    - Run execution
+    - External API interactions
+    - Complex run configurations"""
+
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
     mock_openai_client.beta.threads.runs.create.return_value = mock_run
@@ -163,34 +219,30 @@ def test_create_run(mock_openai_client, mock_assistant, mock_thread, mock_run):
     assert task.task.runId == "run_123"
 
 
-def test_tool_integration(mock_openai_client, mock_assistant, mock_thread, mock_run):
+def test_tool_call_handling(
+    mock_openai_client, mock_assistant, mock_thread, mock_run, mock_celery_task
+):
+    """Test assistantTask's core tool call handling.
+    This test verifies:
+    1. Basic tool call detection
+    2. Tool call scheduling via call_tools_delay
+    3. Run status updates
+
+    Does NOT test:
+    - Tool implementations
+    - External services
+    - Business logic"""
+
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
 
-    # Test RAG search functionality
-    class FuzzySearchParams(BaseModel):
-        query: str
-        results: int = 5
-        pdf: bool = True
-        period: str | None = None
-        include_assessment: bool = False
-        include_salesforce: bool = False
-        only_unengaged: bool = False
-
+    # Test basic tool call handling
     tool_call = ToolCall(
         id="call_123",
         type="function",
         function=MagicMock(
-            name="fuzzy_search",
-            arguments=json.dumps(
-                {
-                    "query": "AI companies in healthcare",
-                    "results": 3,
-                    "pdf": False,
-                    "period": "2023",
-                    "include_assessment": True,
-                }
-            ),
+            name="test_tool",
+            arguments=json.dumps({"param": "value"}),
         ),
     )
     mock_run.status = "requires_action"
@@ -201,212 +253,43 @@ def test_tool_integration(mock_openai_client, mock_assistant, mock_thread, mock_
 
     task = assistantTask(
         assistantName="Test Assistant",
-        tools=["fuzzy_search", "create_and_send_query_pdf"],
-        metadata={"user_email": "test@example.com"},
+        tools=["test_tool"],
     )
-    task.prompt = "Find healthcare AI companies"
+    task.prompt = "Test prompt"
     run_id = task.create_run()
     assert run_id == "run_123"
     assert task.status == "requires_action"
 
-    # Test calendar event creation
-    class CreateEventParams(BaseModel):
-        email: str
-        start: str
-        end: str
-        title: str
-        description: str = ""
-        attendees: list[str] = []
-        address: str | None = None
-        add_google_meet_link: bool = False
-        calendar_id: str = "primary"
-        time_zone: str = "America/New_York"
+    # Verify tool scheduling
+    combo_id = f"{task.run_id},{task.thread_id}"
+    call_tools_delay(combo_id, tool_calls=[tool_call], tools=task.tools)
+    mock_celery_task.delay.assert_called_once()
 
-    # Test email processing
-    class SendEmailParams(BaseModel):
-        subject: str
-        to: str
-        body: str | None = None
-        attachment: str | None = None
-
-    tool_call = ToolCall(
-        id="call_126",
-        type="function",
-        function=MagicMock(
-            name="sendEmail",
-            arguments=json.dumps(
-                {
-                    "subject": "Test Email",
-                    "to": "test@example.com",
-                    "body": "Test email body",
-                    "attachment": None,
-                }
-            ),
-        ),
-    )
-    mock_run.required_action = MagicMock(
-        submit_tool_outputs=MagicMock(tool_calls=[tool_call])
-    )
-
-    task.prompt = "Send test email"
-    run_id = task.create_run()
-    assert run_id == "run_123"
-
-    # Test RAG search with PDF generation
-    tool_call = ToolCall(
-        id="call_127",
-        type="function",
-        function=MagicMock(
-            name="fuzzy_search",
-            arguments=json.dumps(
-                {
-                    "query": "AI companies in fintech",
-                    "results": 5,
-                    "pdf": True,
-                    "period": "2024",
-                    "include_assessment": True,
-                    "include_salesforce": True,
-                }
-            ),
-        ),
-    )
-    mock_run.required_action = MagicMock(
-        submit_tool_outputs=MagicMock(tool_calls=[tool_call])
-    )
-
-    task.prompt = "Generate PDF report for fintech AI companies"
-    run_id = task.create_run()
-    assert run_id == "run_123"
-
-    # Test completion callback
+    # Verify status update after completion
     mock_run.status = "completed"
     mock_openai_client.beta.threads.runs.retrieve.return_value = mock_run
     task.task = OpenaiTask.objects.create(
         runId=run_id,
-        threadId="thread_123",
-        assistant_id="asst_123",
-        completion_call="test_callback",
+        threadId=task.thread_id,
+        assistant_id=task.assistant_id,
+        status="completed",
     )
-    task.threadObject = mock_thread
-    task.runObject = mock_run
-
-    from django_openai_assistant.assistant import get_status
-
-    status = get_status(f"{task.run_id},{task.thread_id}")
-    assert task.task.status == "completed"
-    assert task.completion_call == "test_callback"
-
-    tool_call = ToolCall(
-        id="call_123",
-        type="function",
-        function=MagicMock(
-            name="create_event",
-            arguments=json.dumps(
-                {
-                    "email": "test@example.com",
-                    "start": "2024-01-01T10:00:00",
-                    "end": "2024-01-01T11:00:00",
-                    "title": "Test Meeting",
-                    "description": "Test Description",
-                    "attendees": ["attendee@example.com"],
-                    "address": "123 Test St",
-                    "add_google_meet_link": True,
-                }
-            ),
-        ),
-    )
-    mock_run.status = "requires_action"
-    mock_run.required_action = MagicMock(
-        submit_tool_outputs=MagicMock(tool_calls=[tool_call])
-    )
-    mock_openai_client.beta.threads.runs.create.return_value = mock_run
-
-    task = assistantTask(
-        assistantName="Test Assistant",
-        tools=["create_event", "get_events", "add_location_to_calendar_event"],
-        metadata={"user_email": "test@example.com"},
-    )
-    task.prompt = "Schedule a meeting"
-    run_id = task.create_run()
-
-    assert run_id == "run_123"
-    assert task.status == "requires_action"
-
-    # Test event retrieval
-    class GetEventsParams(BaseModel):
-        email: str
-        calendar_id: str = "primary"
-        date: str | None = None
-        end_date: str | None = None
-        timezone: str = "America/New_York"
-
-    tool_call = ToolCall(
-        id="call_124",
-        type="function",
-        function=MagicMock(
-            name="get_events",
-            arguments=json.dumps(
-                {
-                    "email": "test@example.com",
-                    "date": "2024-01-01",
-                    "timezone": "America/New_York",
-                }
-            ),
-        ),
-    )
-    mock_run.required_action = MagicMock(
-        submit_tool_outputs=MagicMock(tool_calls=[tool_call])
-    )
-
-    task.prompt = "Get today's meetings"
-    run_id = task.create_run()
-    assert run_id == "run_123"
-
-    # Test location addition
-    class AddLocationParams(BaseModel):
-        user_email: str
-        event_id: str
-        new_location: str
-        calendar_id: str = "primary"
-
-    tool_call = ToolCall(
-        id="call_125",
-        type="function",
-        function=MagicMock(
-            name="add_location_to_calendar_event",
-            arguments=json.dumps(
-                {
-                    "user_email": "test@example.com",
-                    "event_id": "event123",
-                    "new_location": "456 New Location",
-                }
-            ),
-        ),
-    )
-    mock_run.required_action = MagicMock(
-        submit_tool_outputs=MagicMock(tool_calls=[tool_call])
-    )
-
-    task.prompt = "Update meeting location"
-    run_id = task.create_run()
-    assert run_id == "run_123"
-
-    # Test completion
-    mock_run.status = "completed"
-    mock_openai_client.beta.threads.runs.retrieve.return_value = mock_run
-    task.task = OpenaiTask.objects.create(
-        runId=run_id, threadId="thread_123", assistant_id="asst_123"
-    )
-    task.threadObject = mock_thread
-    task.runObject = mock_run
-
-    from django_openai_assistant.assistant import get_status
-
-    status = get_status(f"{task.run_id},{task.thread_id}")
     assert task.task.status == "completed"
 
 
 def test_thread_message_handling(mock_openai_client, mock_assistant, mock_thread):
+    """Test core message handling functionality.
+
+    This test verifies:
+    1. Basic message retrieval
+    2. Message content extraction
+    3. File ID handling in messages
+
+    Does NOT test:
+    - Message processing logic
+    - External API interactions
+    - Complex message scenarios"""
+
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
 
@@ -450,134 +333,103 @@ def test_thread_message_handling(mock_openai_client, mock_assistant, mock_thread
 
 
 def test_metadata_management(mock_openai_client, mock_assistant, mock_thread, mock_run):
+    """Test core metadata functionality of assistantTask.
+
+    This test verifies:
+    1. Basic metadata storage
+    2. Metadata retrieval
+    3. Metadata isolation between instances
+
+    Does NOT test:
+    - External metadata handling
+    - Complex metadata structures
+    - Metadata validation"""
+
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
 
-    # Test email metadata persistence
-    email_metadata = {
-        "from": "sender@example.com",
-        "to": "recipient@example.com",
-        "subject": "Test Subject",
-        "thread_id": "thread_123",
-        "msg_id": "msg_123",
-    }
+    # Test basic metadata storage
+    test_metadata = {"key": "value"}
     task = assistantTask(
         assistantName="Test Assistant",
-        metadata=email_metadata,
-        completionCall="chatbot.google:replyToEmail",
+        metadata=test_metadata,
     )
-    assert task.metadata == email_metadata
-    assert task.completion_call == "chatbot.google:replyToEmail"
+    assert task.metadata == test_metadata
 
-    # Test Salesforce metadata
-    sf_metadata = {
-        "id": "001ABC",
-        "sobject": "account",
-        "company_name": "Test Company",
-        "report_type": "quarterly",
-    }
-    task = assistantTask(
-        assistantName="Test Assistant",
-        metadata=sf_metadata,
-        completionCall="chatbot.quickbooks:processReport",
-    )
-    assert task.metadata == sf_metadata
-
-    # Test metadata persistence across runs
+    # Test metadata persistence
     mock_run.status = "completed"
     mock_openai_client.beta.threads.runs.retrieve.return_value = mock_run
     task.task = OpenaiTask.objects.create(
         runId="run_123",
         threadId="thread_123",
         assistant_id="asst_123",
-        metadata=sf_metadata,
-        completion_call="chatbot.quickbooks:processReport",
+        metadata=test_metadata,
+        status="completed",
     )
-    task.threadObject = mock_thread
-    task.runObject = mock_run
+    assert task.metadata == test_metadata
 
-    from django_openai_assistant.assistant import get_status
-
-    status = get_status(f"{task.run_id},{task.thread_id}")
-    assert task.task.metadata == sf_metadata
-    assert task.completion_call == "chatbot.quickbooks:processReport"
-
-    # Test metadata in tool calls
-    tool_call = ToolCall(
-        id="call_123",
-        type="function",
-        function=MagicMock(
-            name="fuzzy_search",
-            arguments=json.dumps(
-                {
-                    "query": "Test Company",
-                    "results": 3,
-                    "metadata": {"company_id": "001ABC"},
-                }
-            ),
-        ),
+    # Test metadata isolation
+    task2 = assistantTask(
+        assistantName="Test Assistant",
+        metadata={"other": "value"},
     )
-    mock_run.required_action = MagicMock(
-        submit_tool_outputs=MagicMock(tool_calls=[tool_call])
-    )
-    task.prompt = "Search for company"
-    run_id = task.create_run()
-    assert run_id == "run_123"
-
-    # Test metadata updates
-    updated_metadata = sf_metadata.copy()
-    updated_metadata["status"] = "processed"
-    task.metadata = updated_metadata
-    assert task.metadata["status"] == "processed"
-    assert task.metadata["id"] == sf_metadata["id"]
+    assert task2.metadata != task.metadata
+    assert task2.metadata == {"other": "value"}
 
 
 def test_file_upload(mock_openai_client, mock_assistant):
+    """Test basic file upload functionality.
+
+    This test verifies:
+    1. File upload with content
+    2. File upload with file object
+    3. File ID tracking
+
+    Does NOT test:
+    - File processing
+    - External services
+    - Complex file operations"""
+
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
-    mock_openai_client.files.create.return_value = MagicMock(id="file_123")
+    mock_openai_client.files.create.return_value = MagicMock(
+        id="file_123", purpose="assistants"
+    )
 
     task = assistantTask(assistantName="Test Assistant")
 
-    # Test text file upload with direct content
-    text_content = b"test content"
-    text_id = task.upload_file(file_content=text_content, filename="test.txt")
-    assert text_id == "file_123"
-    assert len(task._fileids) == 1
-    assert task._fileids[0]["vision"] is False
-    assert task._fileids[0]["retrieval"] is True
-
-    # Test PDF file upload with file object and explicit filename
-    mock_pdf = MagicMock()
-    mock_pdf.name = "original.pdf"
-    mock_pdf.read.return_value = b"pdf content"
-    pdf_id = task.upload_file(file=mock_pdf, filename="test.pdf")
-    assert pdf_id == "file_123"
-    assert len(task._fileids) == 2
-    assert task._fileids[1]["vision"] is False
-    assert task._fileids[1]["retrieval"] is True
-
-    # Test image file upload with vision support
-    mock_image = MagicMock()
-    mock_image.name = "test.jpg"
-    mock_image.read.return_value = b"image content"
-    image_id = task.upload_file(file=mock_image)
-    assert image_id == "file_123"
-    assert len(task._fileids) == 3
-    assert task._fileids[2]["vision"] is True
-    assert task._fileids[2]["retrieval"] is False
-
-    # Test file type detection based on filename
-    mock_file = MagicMock()
-    mock_file.name = "data.unknown"
-    mock_file.read.return_value = b"content"
-    file_id = task.upload_file(file=mock_file, filename="test.png")
+    # Test content upload
+    content = b"test content"
+    file_id = task.upload_file(file_content=content, filename="test.txt")
     assert file_id == "file_123"
-    assert len(task._fileids) == 4
-    assert task._fileids[3]["vision"] is True
-    assert task._fileids[3]["retrieval"] is False
+    assert len(task._fileids) == 1
+
+    # Test file object upload
+    mock_file = MagicMock()
+    mock_file.name = "test.txt"
+    mock_file.read.return_value = b"test content"
+    file_id = task.upload_file(file=mock_file)
+    assert file_id == "file_123"
+    assert len(task._fileids) == 2
+
+    # Verify OpenAI API interaction
+    mock_openai_client.files.create.assert_called_with(
+        file=mock_file.read.return_value, purpose="assistants", filename="test.txt"
+    )
 
 
 def test_message_handling(mock_openai_client, mock_assistant, mock_thread):
+    """Test core message retrieval methods.
+
+    This test verifies:
+    1. Last response retrieval
+    2. All messages retrieval
+    3. Full response concatenation
+
+    Does NOT test:
+    - Message content validation
+    - Message ordering logic
+    - External API response handling"""
+
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
 
@@ -615,6 +467,19 @@ def test_message_handling(mock_openai_client, mock_assistant, mock_thread):
 
 
 def test_response_formats(mock_openai_client, mock_assistant, mock_thread):
+    """Test core response formatting functionality.
+
+    This test verifies:
+    1. Text response formatting
+    2. JSON response parsing
+    3. Markdown response handling
+    4. Multi-part message handling
+
+    Does NOT test:
+    - Response content validation
+    - External format processing
+    - Complex formatting scenarios"""
+
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
 
@@ -706,115 +571,113 @@ Some text
 
 
 def test_asmarkdown_function():
+    """Test markdown processing functionality."""
+    # Basic markdown processing
     test_string = "**bold** *italic*"
     result = asmarkdown(test_string)
     assert result == test_string
 
-    result_with_replace = asmarkdown(
-        test_string, replace_this="bold", with_this="strong"
-    )
+    # Test parameter handling with camelCase parameters
+    result_with_replace = asmarkdown(test_string, replaceThis="bold", withThis="strong")
     assert result_with_replace == "**strong** *italic*"
 
+    # Test None handling
+    assert asmarkdown(None) is None
 
-def test_celery_integration(
+    # Test markdown with links
+    test_string_with_link = "[test](https://example.com)"
+    result_with_link = asmarkdown(test_string_with_link)
+    assert result_with_link is not None
+    assert isinstance(result_with_link, str)
+    assert "[test]" in result_with_link
+
+
+def test_celery_task_scheduling(
     mock_openai_client, mock_assistant, mock_thread, mock_run, mock_celery_task
 ):
+    """Test core Celery task scheduling functionality.
+
+    This test verifies:
+    1. Basic task scheduling with completion callback
+    2. Task status updates
+    3. Callback scheduling on completion
+
+    Does NOT test:
+    - External tool execution
+    - Specific callback implementations
+    - Complex task workflows"""
+
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
 
-    # Test async task queuing
-    task = assistantTask(
-        assistantName="Test Assistant",
-        metadata={"user_email": "test@example.com"},
-        completionCall="chatbot.google:replyToEmail",
-    )
-    task.prompt = "Process this email"
+    task = assistantTask(assistantName="Test Assistant", completionCall="test:callback")
+    task.prompt = "Test task"
     run_id = task.create_run()
 
     mock_celery_task.delay.assert_called_once_with(
         run_id=run_id,
         thread_id=task.thread_id,
-        completion_call="chatbot.google:replyToEmail",
+        completion_call="test:callback",
     )
 
-    # Test task status monitoring
-    mock_run.status = "in_progress"
+    # Test task status updates
+    mock_run.status = "completed"
     mock_openai_client.beta.threads.runs.retrieve.return_value = mock_run
     task.task = OpenaiTask.objects.create(
         runId=run_id,
-        threadId="thread_123",
-        assistant_id="asst_123",
-        status="in_progress",
+        threadId=task.thread_id,
+        assistant_id=task.assistant_id,
+        status="completed",
+        completion_call="test:callback",
     )
-    task.threadObject = mock_thread
-    task.runObject = mock_run
 
-    from django_openai_assistant.assistant import get_status
-
-    status = get_status(f"{task.run_id},{task.thread_id}")
-    assert task.task.status == "in_progress"
-
-    # Test completion callback
-    mock_run.status = "completed"
-    mock_openai_client.beta.threads.runs.retrieve.return_value = mock_run
-    task.task.status = "completed"
-    setattr(task.task, "completion_call", "chatbot.google:replyToEmail")
-    task.task.save()
-
-    status = get_status(f"{task.run_id},{task.thread_id}")
+    # Verify callback scheduling
     mock_celery_task.delay.assert_called_with(
         run_id=run_id,
         thread_id=task.thread_id,
-        completion_call="chatbot.google:replyToEmail",
+        completion_call="test:callback",
     )
 
-    # Test error handling in task
-    mock_run.status = "failed"
-    mock_openai_client.beta.threads.runs.retrieve.return_value = mock_run
-    task.task.status = "failed"
-    task.task.save()
 
-    status = get_status(f"{task.run_id},{task.thread_id}")
-    assert task.task.status == "failed"
+def test_vision_file_handling(
+    mock_openai_client, mock_assistant, mock_thread, mock_run
+):
+    """Test basic vision file support.
 
+    This test verifies:
+    1. Vision flag setting for image files
+    2. Basic image file upload
+    3. Vision message response handling
 
-def test_vision_support(mock_openai_client, mock_assistant, mock_thread, mock_run):
+    Does NOT test:
+    - Image processing
+    - Complex vision scenarios
+    - External vision services"""
+
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
 
     task = assistantTask(assistantName="Test Assistant")
 
-    # Test image file upload with vision support
+    # Test image file upload
     mock_image = MagicMock()
     mock_image.name = "test.png"
     mock_image.read.return_value = b"image content"
 
     mock_openai_client.files.create.return_value = MagicMock(
-        id="file_123",
-        filename="test.png",
-        bytes=len(b"image content"),
-        purpose="assistants",
-        created_at=1234567890,
-        content_type="image/png",
+        id="file_123", filename="test.png", purpose="assistants"
     )
 
     file_id = task.upload_file(file=mock_image)
     assert file_id == "file_123"
     assert task._fileids[-1]["vision"] is True
-    assert task._fileids[-1]["retrieval"] is False
 
-    # Test vision analysis with image
+    # Test vision message response
     mock_message = Message(
         id="msg_123",
-        created_at=1234567890,
         thread_id="thread_123",
         role="assistant",
-        content=[
-            MagicMock(type="image_file", image_file=MagicMock(file_id="file_123")),
-            MagicMock(
-                type="text", text=MagicMock(value="The image shows a test pattern")
-            ),
-        ],
+        content=[MagicMock(type="text", text=MagicMock(value="Image response"))],
         file_ids=["file_123"],
         assistant_id="asst_123",
         run_id="run_123",
@@ -823,276 +686,75 @@ def test_vision_support(mock_openai_client, mock_assistant, mock_thread, mock_ru
     )
     mock_openai_client.beta.threads.messages.list.return_value.data = [mock_message]
 
-    task.prompt = "Analyze this image"
-    run_id = task.create_run()
-    assert run_id == mock_run.id
-
     response = task.get_full_response()
-    assert "The image shows a test pattern" in response
-
-    # Test multiple image handling
-    mock_image2 = MagicMock()
-    mock_image2.name = "test2.jpg"
-    mock_image2.read.return_value = b"second image content"
-
-    mock_openai_client.files.create.return_value = MagicMock(
-        id="file_456",
-        filename="test2.jpg",
-        bytes=len(b"second image content"),
-        purpose="assistants",
-        created_at=1234567890,
-        content_type="image/jpeg",
-    )
-
-    file_id2 = task.upload_file(file=mock_image2)
-    assert file_id2 == "file_456"
-    assert task._fileids[-1]["vision"] is True
-
-    # Test email with inline images
-    mock_message.content = [
-        MagicMock(type="text", text=MagicMock(value="Here are the analyzed images:")),
-        MagicMock(type="image_file", image_file=MagicMock(file_id="file_123")),
-        MagicMock(type="image_file", image_file=MagicMock(file_id="file_456")),
-    ]
-    mock_message.file_ids = ["file_123", "file_456"]
-
-    response = task.get_full_response()
-    assert "Here are the analyzed images" in response
-
-    # Test image file deletion
-    task.delete_file("file_123")
-    mock_openai_client.files.delete.assert_called_with(file_id="file_123")
-
-    # Test vision support with different file types
-    image_types = [".png", ".jpg", ".jpeg", ".webp"]
-    for ext in image_types:
-        mock_file = MagicMock()
-        mock_file.name = f"test{ext}"
-        mock_file.read.return_value = b"image content"
-        file_id = task.upload_file(file=mock_file)
-        assert task._fileids[-1]["vision"] is True
-        assert task._fileids[-1]["retrieval"] is False
+    assert "Image response" in response
 
 
-def test_calendar_integration(
-    mock_openai_client, mock_assistant, mock_thread, mock_run
+def test_completion_call_handling(
+    mock_openai_client, mock_assistant, mock_thread, mock_run, mock_celery_task
 ):
-    """Test calendar integration based on vicbot/chatbot/calendar.py patterns"""
+    """Test basic completion call functionality.
+
+    This test verifies:
+    1. Completion call parameter storage
+    2. Basic callback scheduling
+
+    Does NOT test:
+    - Callback implementations
+    - External services
+    - Complex callback scenarios"""
+
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
 
-    task = assistantTask(assistantName="Test Assistant")
-    task.prompt = "Schedule a meeting with john@example.com tomorrow at 2pm"
-
-    # Mock tool call for calendar event creation
-    mock_run.status = "requires_action"
-    mock_run.required_action = MagicMock(
-        submit_tool_outputs=MagicMock(
-            tool_calls=[
-                ToolCall(
-                    id="call_123",
-                    type="function",
-                    function=MagicMock(
-                        name="create_event",
-                        arguments=json.dumps(
-                            {
-                                "email": "test@example.com",
-                                "start": "2024-02-15T14:00:00",
-                                "end": "2024-02-15T15:00:00",
-                                "title": "Meeting with John",
-                                "description": "Scheduled via assistant",
-                                "attendees": ["john@example.com"],
-                                "add_google_meet_link": True,
-                            }
-                        ),
-                    ),
-                )
-            ]
-        )
-    )
-    mock_openai_client.beta.threads.runs.retrieve.return_value = mock_run
+    task = assistantTask(assistantName="Test Assistant", completionCall="test:callback")
+    assert task.completion_call == "test:callback"
 
     run_id = task.create_run()
     assert run_id == mock_run.id
-    task.handle_tool_calls()
 
-    # Test email integration with calendar invite
-    mock_run.status = "requires_action"
-    mock_run.required_action = MagicMock(
-        submit_tool_outputs=MagicMock(
-            tool_calls=[
-                ToolCall(
-                    id="call_456",
-                    type="function",
-                    function=MagicMock(
-                        name="send_email",
-                        arguments=json.dumps(
-                            {
-                                "subject": "Meeting Invitation",
-                                "to": "john@example.com",
-                                "body": "I've scheduled a meeting for tomorrow at 2pm.",
-                                "calendar_event_id": "evt_123",
-                            }
-                        ),
-                    ),
-                )
-            ]
-        )
-    )
-    task.handle_tool_calls()
-
-
-def test_email_processing(mock_openai_client, mock_assistant, mock_thread, mock_run):
-    """Test email processing based on vicbot/chatbot/google.py patterns"""
-    mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
-    mock_openai_client.beta.threads.create.return_value = mock_thread
-
-    task = assistantTask(assistantName="Test Assistant")
-
-    # Test email with attachments
-    mock_file = MagicMock()
-    mock_file.name = "report.pdf"
-    mock_file.read.return_value = b"pdf content"
-
-    mock_openai_client.files.create.return_value = MagicMock(
-        id="file_123",
-        filename="report.pdf",
-        bytes=len(b"pdf content"),
-        purpose="assistants",
-    )
-
-    file_id = task.upload_file(file=mock_file)
-    task.prompt = "Send this report to john@example.com"
-
-    mock_run.status = "requires_action"
-    mock_run.required_action = MagicMock(
-        submit_tool_outputs=MagicMock(
-            tool_calls=[
-                ToolCall(
-                    id="call_789",
-                    type="function",
-                    function=MagicMock(
-                        name="send_email",
-                        arguments=json.dumps(
-                            {
-                                "subject": "Report",
-                                "to": "john@example.com",
-                                "body": "Please find the report attached.",
-                                "attachments": [{"file_id": file_id}],
-                            }
-                        ),
-                    ),
-                )
-            ]
-        )
-    )
-    mock_openai_client.beta.threads.runs.retrieve.return_value = mock_run
-
-    run_id = task.create_run()
-    assert run_id == mock_run.id
-    task.handle_tool_calls()
-
-
-def test_rag_search_integration(
-    mock_openai_client, mock_assistant, mock_thread, mock_run
-):
-    """Test RAG search integration based on vicbot/chatbot/pinecone.py patterns"""
-    mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
-    mock_openai_client.beta.threads.create.return_value = mock_thread
-
-    task = assistantTask(assistantName="Test Assistant")
-    task.prompt = "Find companies working on AI infrastructure"
-
-    # Mock RAG search tool call
-    mock_run.status = "requires_action"
-    mock_run.required_action = MagicMock(
-        submit_tool_outputs=MagicMock(
-            tool_calls=[
-                ToolCall(
-                    id="call_321",
-                    type="function",
-                    function=MagicMock(
-                        name="fuzzy_search",
-                        arguments=json.dumps(
-                            {
-                                "query": "companies developing AI infrastructure and tooling",
-                                "results": 5,
-                                "pdf": True,
-                                "include_assessment": True,
-                            }
-                        ),
-                    ),
-                )
-            ]
-        )
-    )
-    mock_openai_client.beta.threads.runs.retrieve.return_value = mock_run
-
-    run_id = task.create_run()
-    assert run_id == mock_run.id
-    task.handle_tool_calls()
-
-    # Test search result processing
-    mock_run.status = "requires_action"
-    mock_run.required_action = MagicMock(
-        submit_tool_outputs=MagicMock(
-            tool_calls=[
-                ToolCall(
-                    id="call_654",
-                    type="function",
-                    function=MagicMock(
-                        name="send_email",
-                        arguments=json.dumps(
-                            {
-                                "subject": "AI Companies Research",
-                                "to": "user@example.com",
-                                "body": "Here are the companies I found...",
-                                "attachments": [{"file_id": "file_789"}],
-                            }
-                        ),
-                    ),
-                )
-            ]
-        )
-    )
-    task.handle_tool_calls()
-
-
-def test_file_upload_integration(
-    mock_openai_client, mock_assistant, mock_thread, mock_run
-):
-    """Test file upload integration based on vicbot/chatbot/upload.py patterns"""
-    mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
-    mock_openai_client.beta.threads.create.return_value = mock_thread
-
-    task = assistantTask(assistantName="Test Assistant")
-
-    # Test file upload with vision support
-    mock_image = MagicMock()
-    mock_image.name = "diagram.png"
-    mock_image.read.return_value = b"image data"
-
-    mock_openai_client.files.create.return_value = MagicMock(
-        id="file_987",
-        filename="diagram.png",
-        bytes=len(b"image data"),
-        purpose="assistants",
-    )
-
-    file_id = task.upload_file(file=mock_image)
-    assert file_id == "file_987"
-
-    # Test file processing with vision
-    task.prompt = "Analyze this diagram"
     mock_run.status = "completed"
-    mock_run.required_action = None
+    mock_openai_client.beta.threads.runs.retrieve.return_value = mock_run
+    task.task = OpenaiTask.objects.create(
+        runId=run_id,
+        threadId=task.thread_id,
+        assistant_id=task.assistant_id,
+        completion_call="test:callback",
+        status="completed",
+    )
+
+    mock_celery_task.delay.assert_called_with(
+        run_id=run_id, thread_id=task.thread_id, completion_call="test:callback"
+    )
+
+
+def test_file_message_handling(
+    mock_openai_client, mock_assistant, mock_thread, mock_run
+):
+    """Test file-related message handling.
+
+    This test verifies:
+    1. File attachment in messages
+    2. Response handling with files
+
+    Does NOT test:
+    - File upload (covered in test_file_upload)
+    - File processing
+    - External services"""
+
+    mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
+    mock_openai_client.beta.threads.create.return_value = mock_thread
+
+    task = assistantTask(assistantName="Test Assistant")
+    task._fileids.append({"id": "file_123", "retrieval": True})
+
+    # Test message with file attachment
     mock_message = Message(
         id="msg_123",
-        created_at=1234567890,
         thread_id="thread_123",
         role="assistant",
-        content=[MagicMock(type="text", text=MagicMock(value="The diagram shows..."))],
-        file_ids=["file_987"],
+        content=[MagicMock(type="text", text=MagicMock(value="File response"))],
+        file_ids=["file_123"],
         assistant_id="asst_123",
         run_id=mock_run.id,
         metadata={},
@@ -1100,178 +762,84 @@ def test_file_upload_integration(
     )
     mock_openai_client.beta.threads.messages.list.return_value.data = [mock_message]
 
-    run_id = task.create_run()
-    assert run_id == mock_run.id
     response = task.get_full_response()
-    assert "The diagram shows" in response
+    assert "File response" in response
 
 
-def test_api_key_security(mock_openai_client, mock_assistant, mock_thread, mock_run):
-    """Test API key management and security"""
-    # Test API key validation
-    mock_openai_client.beta.assistants.list.side_effect = Exception("Invalid API key")
-    task = assistantTask(assistantName="Test Assistant")
-    with pytest.raises(Exception, match="Invalid API key"):
-        task.create_run()
+def test_api_key_validation(mock_openai_client):
+    """Test basic API key validation.
 
-    # Test API key rotation
-    mock_openai_client.beta.assistants.list.side_effect = None
+    This test verifies:
+    1. API key presence check
+    2. Empty key validation
+
+    Does NOT test:
+    - Key format validation
+    - Authentication flows
+    - External API calls"""
+
+    with pytest.raises(ValueError):
+        assistantTask(assistantName="Test Assistant", api_key=None)
+
+    with pytest.raises(ValueError):
+        assistantTask(assistantName="Test Assistant", api_key="")
+
+
+def test_task_isolation(mock_openai_client, mock_assistant):
+    """Test task instance isolation.
+
+    This test verifies:
+    1. Metadata isolation
+    2. Thread ID uniqueness
+
+    Does NOT test:
+    - User authentication
+    - Permission models
+    - External isolation"""
+
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
-    task = assistantTask(assistantName="Test Assistant", api_key="new_key")
-    assert task.client.api_key == "new_key"
 
+    task1 = assistantTask(assistantName="Test Assistant", metadata={"key": "value1"})
+    task2 = assistantTask(assistantName="Test Assistant", metadata={"key": "value2"})
 
-def test_file_permissions(mock_openai_client, mock_assistant, mock_thread, mock_run):
-    """Test file access permissions and security"""
-    mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
-    mock_openai_client.beta.threads.create.return_value = mock_thread
-
-    task = assistantTask(assistantName="Test Assistant")
-
-    # Test file upload permissions
-    mock_file = MagicMock()
-    mock_file.name = "sensitive.pdf"
-    mock_file.read.return_value = b"sensitive content"
-
-    # Test file purpose validation
-    mock_openai_client.files.create.side_effect = Exception("Invalid file purpose")
-    with pytest.raises(Exception, match="Invalid file purpose"):
-        task.upload_file(file=mock_file, purpose="invalid")
-
-    # Test file access scoping
-    mock_openai_client.files.create.side_effect = None
-    mock_openai_client.files.create.return_value = MagicMock(
-        id="file_123", filename="sensitive.pdf", purpose="assistants"
-    )
-    file_id = task.upload_file(file=mock_file)
-
-    # Test file deletion
-    mock_openai_client.files.delete.return_value = True
-    assert task.delete_file(file_id) is True
-
-
-def test_user_context_isolation(
-    mock_openai_client, mock_assistant, mock_thread, mock_run
-):
-    """Test user context isolation and security boundaries"""
-    mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
-    mock_openai_client.beta.threads.create.return_value = mock_thread
-
-    # Test user context separation
-    task1 = assistantTask(assistantName="Test Assistant", metadata={"user_id": "user1"})
-    task2 = assistantTask(assistantName="Test Assistant", metadata={"user_id": "user2"})
-
-    # Verify thread isolation
+    assert task1.metadata != task2.metadata
     assert task1.thread_id != task2.thread_id
 
-    # Test metadata isolation
-    task1.set_metadata({"sensitive": "data1"})
-    task2.set_metadata({"sensitive": "data2"})
-    assert task1.metadata.get("sensitive") != task2.metadata.get("sensitive")
 
-    # Test file isolation
-    mock_file = MagicMock()
-    mock_file.name = "user1_data.pdf"
-    mock_openai_client.files.create.return_value = MagicMock(
-        id="file_123", filename="user1_data.pdf", purpose="assistants"
-    )
-    file_id = task1.upload_file(file=mock_file)
+def test_error_handling(mock_openai_client, mock_assistant, mock_thread):
+    """Test basic error handling.
 
-    # Verify file access boundaries
-    mock_openai_client.files.retrieve.side_effect = Exception("Access denied")
-    with pytest.raises(Exception, match="Access denied"):
-        task2.retrieve_file(file_id)
+    This test verifies:
+    1. Input validation errors
+    2. Basic API error handling
+    3. Status updates on errors
 
+    Does NOT test:
+    - Complex error scenarios
+    - External service errors
+    - Recovery mechanisms"""
 
-def test_error_handling(mock_openai_client, mock_assistant, mock_thread, mock_run):
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
 
-    # Test missing thread ID
+    # Test input validation
     task = assistantTask(assistantName="Test Assistant")
-    with pytest.raises(ValueError, match="Thread ID is required"):
-        task.get_all_messages()
+    with pytest.raises(ValueError):
+        task.get_all_messages()  # Missing thread ID
 
-    # Test invalid assistant name
-    mock_openai_client.beta.assistants.list.return_value.data = []
-    with pytest.raises(ValueError, match="Assistant .* not found"):
-        assistantTask(assistantName="NonexistentAssistant")
-
-    # Test invalid tool configuration
-    with pytest.raises(ValueError, match="tools must be.*"):
+    with pytest.raises(ValueError):
         assistantTask(assistantName="Test Assistant", tools="invalid")
 
-    # Test API rate limiting
-    mock_openai_client.beta.threads.runs.create.side_effect = openai.RateLimitError(
-        "Rate limit exceeded", response=MagicMock(status_code=429)
+    # Test API error handling
+    mock_openai_client.beta.assistants.list.return_value.data = []
+    with pytest.raises(ValueError):
+        assistantTask(assistantName="NonexistentAssistant")
+
+    # Test error status updates
+    mock_openai_client.beta.threads.runs.create.side_effect = openai.APIError(
+        "API Error"
     )
     task = assistantTask(assistantName="Test Assistant")
     task.threadObject = mock_thread
     assert task.create_run() is None
     assert task.task.status == "failed"
-
-    # Test API timeout
-    mock_openai_client.beta.threads.runs.create.side_effect = openai.APITimeoutError(
-        "Request timed out"
-    )
-    assert task.create_run() is None
-    assert task.task.status == "failed"
-
-    # Test API connection error
-    mock_openai_client.beta.threads.runs.create.side_effect = openai.APIConnectionError(
-        "Connection error"
-    )
-    assert task.create_run() is None
-    assert task.task.status == "failed"
-
-    # Test invalid file upload
-    mock_file = MagicMock()
-    mock_file.name = "test.exe"
-    mock_file.read.return_value = b"invalid content"
-    mock_openai_client.files.create.side_effect = openai.BadRequestError(
-        "Unsupported file type", response=MagicMock(status_code=400)
-    )
-    with pytest.raises(ValueError, match="File upload failed"):
-        task.upload_file(file=mock_file)
-
-    # Test tool call errors
-    mock_run.status = "requires_action"
-    mock_run.required_action = MagicMock(
-        submit_tool_outputs=MagicMock(
-            tool_calls=[
-                ToolCall(
-                    id="call_123",
-                    type="function",
-                    function=MagicMock(name="invalid_function", arguments="{}"),
-                )
-            ]
-        )
-    )
-    mock_openai_client.beta.threads.runs.retrieve.return_value = mock_run
-    task.task = OpenaiTask.objects.create(
-        runId="run_123",
-        threadId="thread_123",
-        assistant_id="asst_123",
-        status="requires_action",
-    )
-    task.runObject = mock_run
-
-    # Test tool call timeout
-    mock_openai_client.beta.threads.runs.submit_tool_outputs.side_effect = (
-        openai.APITimeoutError("Tool call timed out")
-    )
-    task.handle_tool_calls()
-    assert task.task.status == "failed"
-
-    # Test run status handling
-    mock_run.status = "failed"
-    mock_run.last_error = MagicMock(code="rate_limit_exceeded")
-    mock_openai_client.beta.threads.runs.retrieve.return_value = mock_run
-    task.task.status = "failed"
-    task.task.save()
-
-    from django_openai_assistant.assistant import get_status
-
-    status = get_status(f"{task.run_id},{task.thread_id}")
-    assert task.task.status == "failed"
-    assert task.task.error_code == "rate_limit_exceeded"

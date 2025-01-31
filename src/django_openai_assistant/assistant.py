@@ -69,8 +69,8 @@ def set_default_tools(tools: Optional[list] = None, package: Optional[str] = Non
 
 def asmarkdown(
     text: Optional[str],
-    replace_this: Optional[str] = None,
-    with_this: Optional[str] = None,
+    replaceThis: Optional[str] = None,
+    withThis: Optional[str] = None,
 ) -> Optional[str]:
     if text is None:
         return None
@@ -89,8 +89,8 @@ def asmarkdown(
         extension_configs=extension_configs,
     )
 
-    if replace_this is not None and with_this is not None:
-        result = result.replace(replace_this, with_this)
+    if replaceThis is not None and withThis is not None:
+        result = result.replace(replaceThis, withThis)
 
     return result
 
