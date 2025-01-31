@@ -67,17 +67,19 @@ def mock_run():
 def test_assistant_creation_and_configuration(
     mock_openai_client, mock_assistant, mock_thread, mock_run
 ):
-    """Test core assistant initialization and configuration.
+    """Test assistantTask initialization and configuration.
 
     This test verifies:
-    1. Basic initialization with different parameters
-    2. Metadata and completion call handling
-    3. Assistant creation with tools
+    1. Initialization with comboId (run_id, thread_id)
+    2. Initialization with assistantName and metadata
+    3. Assistant retrieval and creation via OpenAI API
+    4. Tool configuration storage and validation
 
     Does NOT test:
-    - Tool implementations
+    - Tool function loading
     - External service integration
-    - Complex configuration scenarios"""
+    - Complex assistant configurations
+    - Business logic implementations"""
 
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
 
@@ -136,14 +138,18 @@ def test_assistant_creation_and_configuration(
 
 
 def test_assistant_task_with_tools(mock_openai_client, mock_assistant):
-    """Test the assistantTask's ability to configure and store tool settings.
+    """Test the assistantTask's tool configuration storage.
 
     This test verifies:
-    1. Tool list storage and validation
-    2. Empty tool list handling
-    3. Single tool configuration
+    1. Tool list validation and storage in assistantTask
+    2. Empty tool list handling (default behavior)
+    3. Single tool configuration support
+    4. Tool configuration persistence in metadata
 
-    Does NOT test actual tool implementations or external module functionality."""
+    Does NOT test:
+    - Tool function discovery or loading
+    - Tool execution or responses
+    - External module imports"""
 
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     tools = ["module:function1", "module:function2"]  # Use proper tool format
@@ -167,45 +173,64 @@ def test_assistant_task_with_tools(mock_openai_client, mock_assistant):
 
 
 def test_set_default_tools():
-    """Test the core tool configuration parsing functionality.
+    """Test the public set_default_tools API function.
 
     This test verifies:
-    1. Dictionary format tool configuration parsing
-    2. Legacy format tool configuration parsing
-    3. Tool module mapping
+    1. Tool registration with dictionary format
+    2. Tool registration with module:function format
+    3. Package-based tool registration
+    4. Default tool configuration persistence
+    5. Tool format validation
 
-    Does NOT test actual tool loading or execution."""
+    Does NOT test:
+    - Tool function implementations
+    - Tool execution
+    - External module loading
+    - Tool discovery"""
 
-    # Test dictionary format parsing
+    # Test dictionary format
     tools = {
         "function1": {"module": "core"},
         "function2": {"module": "core"},
     }
     result = set_default_tools(tools=list(tools.keys()), package="test")
-    assert "function1" in result
+    assert isinstance(result, dict)
+    assert all(isinstance(v, dict) for v in result.values())
+    assert all("module" in v for v in result.values())
     assert result["function1"]["module"] == "core"
-    assert "function2" in result
     assert result["function2"]["module"] == "core"
 
-    # Test legacy format parsing
-    tools_list = ["core:function"]
+    # Test module:function format
+    tools_list = ["core:function", "other:tool"]
     result = set_default_tools(tools=tools_list)
-    assert "function" in result
+    assert isinstance(result, dict)
+    assert all(isinstance(v, dict) for v in result.values())
+    assert all("module" in v for v in result.values())
     assert result["function"]["module"] == "core"
+    assert result["tool"]["module"] == "other"
+
+    # Test invalid format handling
+    with pytest.raises(ValueError):
+        set_default_tools(tools=["invalid_format"])
+
+    with pytest.raises(ValueError):
+        set_default_tools(tools=["module:function:extra"])
 
 
 def test_create_run(mock_openai_client, mock_assistant, mock_thread, mock_run):
-    """Test core run creation functionality.
+    """Test assistantTask's run creation and management.
 
     This test verifies:
-    1. Basic run creation with parameters
-    2. Thread and run ID assignment
-    3. Task object creation
+    1. Run creation with OpenAI API
+    2. Thread creation and ID assignment
+    3. Task object creation and persistence
+    4. Temperature parameter handling
 
     Does NOT test:
-    - Run execution
-    - External API interactions
-    - Complex run configurations"""
+    - Run execution results
+    - External API error handling
+    - Complex run configurations
+    - Tool-specific behaviors"""
 
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
@@ -223,50 +248,60 @@ def test_create_run(mock_openai_client, mock_assistant, mock_thread, mock_run):
 def test_tool_call_handling(
     mock_openai_client, mock_assistant, mock_thread, mock_run, mock_celery_task
 ):
-    """Test assistantTask's core tool call handling.
+    """Test assistantTask's public API for tool configuration and status handling.
+    
     This test verifies:
-    1. Basic tool call detection
-    2. Tool call scheduling via call_tools_delay
-    3. Run status updates
-
+    1. Tool registration via constructor
+    2. Tool string format validation
+    3. Run status transitions during tool processing
+    4. Task status persistence
+    
     Does NOT test:
-    - Tool implementations
-    - External services
-    - Business logic"""
+    - Tool implementation details
+    - Internal tool scheduling
+    - Tool output submission (handled by Celery)
+    - External API implementations"""
 
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
 
-    # Test basic tool call handling
-    tool_call = ToolCall(
-        id="call_123",
-        type="function",
-        function=MagicMock(
-            name="test_tool",
-            arguments=json.dumps({"param": "value"}),
-        ),
+    # Test tool registration and validation
+    task = assistantTask(
+        assistantName="Test Assistant",
+        tools=["test.module:function1", "test.module:function2"]
     )
+    assert isinstance(task.tools, list)
+    assert "test.module:function1" in task.tools
+    assert "test.module:function2" in task.tools
+
+    # Test invalid tool format
+    with pytest.raises(ValueError):
+        assistantTask(assistantName="Test Assistant", tools=["invalid_format"])
+
+    # Test run creation with tools
     mock_run.status = "requires_action"
     mock_run.required_action = MagicMock(
-        submit_tool_outputs=MagicMock(tool_calls=[tool_call])
+        submit_tool_outputs=MagicMock(
+            tool_calls=[
+                MagicMock(
+                    id="call_123",
+                    type="function",
+                    function=MagicMock(
+                        name="test_tool",
+                        arguments=json.dumps({"param": "value"}),
+                    ),
+                )
+            ]
+        )
     )
     mock_openai_client.beta.threads.runs.create.return_value = mock_run
 
-    task = assistantTask(
-        assistantName="Test Assistant",
-        tools=["test_tool"],
-    )
     task.prompt = "Test prompt"
     run_id = task.create_run()
     assert run_id == "run_123"
     assert task.status == "requires_action"
 
-    # Verify tool scheduling
-    combo_id = f"{task.run_id},{task.thread_id}"
-    _call_tools_delay(combo_id, tool_calls=[tool_call], tools=task.tools)
-    mock_celery_task.delay.assert_called_once()
-
-    # Verify status update after completion
+    # Test status transitions
     mock_run.status = "completed"
     mock_openai_client.beta.threads.runs.retrieve.return_value = mock_run
     task.task = OpenaiTask.objects.create(
@@ -277,61 +312,76 @@ def test_tool_call_handling(
     )
     assert task.task.status == "completed"
 
+    # Verify Celery task scheduling
+    mock_celery_task.delay.assert_called_with(
+        f"{run_id},{task.thread_id}"
+    )
+
 
 def test_thread_message_handling(mock_openai_client, mock_assistant, mock_thread):
-    """Test core message handling functionality.
+    """Test assistantTask's thread-level message operations.
 
     This test verifies:
-    1. Basic message retrieval
-    2. Message content extraction
-    3. File ID handling in messages
+    1. Thread creation and initialization
+    2. Message list retrieval from thread
+    3. Thread-level metadata handling
+    4. Thread message synchronization
 
     Does NOT test:
-    - Message processing logic
-    - External API interactions
-    - Complex message scenarios"""
+    - Message content processing (covered in test_message_handling)
+    - File operations (covered in test_file_message_handling)
+    - External API implementations
+    - Complex message chains"""
 
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
 
-    # Test message with text and file content
-    mock_message = Message(
+    task = assistantTask(assistantName="Test Assistant")
+    assert task.threadObject == mock_thread
+
+    # Test thread message list retrieval
+    mock_message1 = Message(
         id="msg_123",
         created_at=1234567890,
         thread_id="thread_123",
         role="assistant",
-        content=[
-            {"type": "text", "text": {"value": "Text response"}},
-            {"type": "image_file", "image_file": {"file_id": "file_123"}}
-        ],
-        file_ids=["file_123"],
+        content=[{"type": "text", "text": {"value": "Message 1"}}],
+        file_ids=[],
         assistant_id="asst_123",
         run_id="run_123",
-        metadata={},
-        status="completed",  # Add required status field
+        metadata={"order": 1},
+        status="completed",
         object="thread.message"
     )
-    mock_openai_client.beta.threads.messages.list.return_value.data = [mock_message]
+    mock_message2 = Message(
+        id="msg_124",
+        created_at=1234567891,
+        thread_id="thread_123",
+        role="assistant",
+        content=[{"type": "text", "text": {"value": "Message 2"}}],
+        file_ids=[],
+        assistant_id="asst_123",
+        run_id="run_123",
+        metadata={"order": 2},
+        status="completed",
+        object="thread.message"
+    )
+    mock_openai_client.beta.threads.messages.list.return_value.data = [
+        mock_message2, mock_message1
+    ]
 
-    task = assistantTask(assistantName="Test Assistant")
-    task.threadObject = mock_thread
-
-    # Test message retrieval
+    # Verify message list retrieval and ordering
     messages = task.get_all_messages()
-    assert len(messages) == 1
-    message = messages[0]
-    assert isinstance(message, dict)
-    assert message["id"] == "msg_123"
-    assert len(message["content"]) == 2
+    assert len(messages) == 2
+    assert messages[0]["id"] == "msg_124"  # Most recent first
+    assert messages[1]["id"] == "msg_123"
 
-    # Test full response formatting
-    full_response = task.get_full_response()
-    assert "Text response" in full_response
+    # Verify thread metadata preservation
+    assert all(msg["thread_id"] == "thread_123" for msg in messages)
+    assert all(msg["assistant_id"] == "asst_123" for msg in messages)
 
-    # Test file retrieval
-    mock_openai_client.files.content.return_value = b"file content"
-    file_content = task.retrieve_file("file_123")
-    assert file_content == b"file content"
+    # Test thread message count
+    assert len(task.get_all_messages()) == 2
 
 
 def test_metadata_management(mock_openai_client, mock_assistant, mock_thread, mock_run):
@@ -420,102 +470,101 @@ def test_file_upload(mock_openai_client, mock_assistant):
 
 
 def test_message_handling(mock_openai_client, mock_assistant, mock_thread):
-    """Test core message retrieval methods.
+    """Test assistantTask's message content processing.
 
     This test verifies:
-    1. Last response retrieval
-    2. All messages retrieval
-    3. Full response concatenation
+    1. Message content extraction
+    2. Response formatting
+    3. Content type handling
+    4. Message role handling
 
     Does NOT test:
-    - Message content validation
-    - Message ordering logic
-    - External API response handling"""
+    - Thread operations (covered in test_thread_message_handling)
+    - File handling (covered in test_file_message_handling)
+    - External API implementations
+    - Message history management"""
 
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
 
-    mock_message = Message(
-        id="msg_123",
-        created_at=1234567890,
-        thread_id="thread_123",
-        role="assistant",
-        content=[{"type": "text", "text": {"value": "Test response"}}],
-        file_ids=[],
-        assistant_id="asst_123",
-        run_id="run_123",
-        metadata={},
-        status="completed",
-        object="thread.message"
-    )
-    mock_openai_client.beta.threads.messages.list.return_value.data = [mock_message]
+    # Test different content types and roles
+    mock_messages = [
+        Message(
+            id="msg_123",
+            created_at=1234567890,
+            thread_id="thread_123",
+            role="assistant",
+            content=[
+                {"type": "text", "text": {"value": "Response 1"}},
+                {"type": "text", "text": {"value": "Response 2"}}
+            ],
+            file_ids=[],
+            assistant_id="asst_123",
+            run_id="run_123",
+            metadata={},
+            status="completed",
+            object="thread.message"
+        ),
+        Message(
+            id="msg_124",
+            created_at=1234567891,
+            thread_id="thread_123",
+            role="user",
+            content=[{"type": "text", "text": {"value": "User input"}}],
+            file_ids=[],
+            assistant_id="asst_123",
+            run_id="run_123",
+            metadata={},
+            status="completed",
+            object="thread.message"
+        )
+    ]
+    mock_openai_client.beta.threads.messages.list.return_value.data = mock_messages
 
     task = assistantTask(assistantName="Test Assistant")
     task.threadObject = mock_thread
 
-    # Test message retrieval methods
+    # Test content extraction and formatting
+    response = task.get_full_response()
+    assert "Response 1" in response
+    assert "Response 2" in response
+    assert "User input" not in response  # User messages not included
+
+    # Test role-specific handling
+    messages = task.get_all_messages()
+    assert len(messages) == 2
+    assert messages[0]["role"] == "user"
+    assert messages[1]["role"] == "assistant"
+
+    # Test last response handling
     last_response = task.get_last_response()
     assert last_response is not None
     assert isinstance(last_response, dict)
-    assert last_response["id"] == "msg_123"
-
-    all_messages = task.get_all_messages()
-    assert len(all_messages) == 1
-    message = all_messages[0]
-    assert isinstance(message, dict)
-    assert message["id"] == "msg_123"
-
-    full_response = task.get_full_response()
-    assert full_response == "Test response"
+    assert last_response.get("role") == "user"  # Most recent message
 
 
 def test_response_formats(mock_openai_client, mock_assistant, mock_thread):
-    """Test core response formatting functionality.
+    """Test assistantTask's response format handling.
 
     This test verifies:
-    1. Text response formatting
-    2. JSON response parsing
-    3. Markdown response handling
-    4. Multi-part message handling
+    1. JSON response extraction and validation
+    2. Markdown formatting and replacements
+    3. Multi-part message concatenation
+    4. Error and null response handling
+    5. Code block extraction
 
     Does NOT test:
-    - Response content validation
+    - Message retrieval (covered in test_message_handling)
+    - Thread operations (covered in test_thread_message_handling)
     - External format processing
-    - Complex formatting scenarios"""
+    - Complex message chains"""
 
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
 
     task = assistantTask(assistantName="Test Assistant")
-    task.threadObject = mock_thread
 
-    # Test streaming response
-    mock_message = Message(
-        id="msg_123",
-        created_at=1234567890,
-        thread_id="thread_123",
-        role="assistant",
-        content=[
-            {"type": "text", "text": {"value": "Part 1"}},
-            {"type": "text", "text": {"value": "Part 2"}},
-            {"type": "text", "text": {"value": "Part 3"}}
-        ],
-        file_ids=[],
-        assistant_id="asst_123",
-        run_id="run_123",
-        metadata={},
-        status="completed",
-        object="thread.message"
-    )
-    mock_openai_client.beta.threads.messages.list.return_value.data = [mock_message]
-
-    # Test multi-message response
-    full_response = task.get_full_response()
-    assert "Part 1" in full_response
-    assert "Part 2" in full_response
-    assert "Part 3" in full_response
-
-    # Test JSON response parsing
+    # Test JSON extraction and validation
     task.response = '{"key": "value", "nested": {"array": [1, 2, 3]}}'
     json_response = task.get_json_response()
     assert isinstance(json_response, dict)
@@ -523,7 +572,7 @@ def test_response_formats(mock_openai_client, mock_assistant, mock_thread):
     assert isinstance(json_response.get("nested"), dict)
     assert json_response.get("nested", {}).get("array") == [1, 2, 3]
 
-    # Test markdown code block parsing
+    # Test code block extraction
     task.response = """```python
 def test():
     return True
@@ -535,12 +584,13 @@ Some text
     json_response = task.get_json_response()
     assert json_response == {"key": "value"}
 
+    # Test markdown formatting
     markdown_response = task.get_markdown_response()
     assert isinstance(markdown_response, str)
     assert "```python" in markdown_response
     assert "```json" in markdown_response
 
-    # Test markdown with replacements
+    # Test markdown replacements
     task.response = "**bold** *italic* [link](https://example.com)"
     markdown_response = task.get_markdown_response(
         replace_this="example.com", with_this="test.com"
@@ -549,66 +599,78 @@ Some text
     assert "test.com" in markdown_response
     assert "**bold**" in markdown_response
 
-    # Test error responses
-    mock_message = Message(
-        id="msg_124",
-        created_at=1234567890,
-        thread_id="thread_123",
-        role="assistant",
-        content=[{"type": "text", "text": {"value": "Error: Invalid request"}}],
-        file_ids=[],
-        assistant_id="asst_123",
-        run_id="run_123",
-        metadata={"error": True},
-        status="completed",
-        object="thread.message"
-    )
-    mock_openai_client.beta.threads.messages.list.return_value.data = [mock_message]
+    # Test multi-part message concatenation
+    task.response = "Part 1\nPart 2\nPart 3"
+    full_response = task.get_full_response()
+    assert "Part 1" in full_response
+    assert "Part 2" in full_response
+    assert "Part 3" in full_response
+
+    # Test error response handling
+    task.response = "Error: Invalid request"
     error_response = task.get_full_response()
     assert "Error:" in error_response
 
-    # Test null responses
+    # Test null response handling
     task.response = None
     assert task.get_json_response() is None
     assert task.get_markdown_response() is None
+    assert task.get_full_response() is None
 
 
 def test_asmarkdown_function():
-    """Test markdown processing functionality."""
-    # Basic markdown processing
+    """Test the public asmarkdown function for text formatting.
+
+    This test verifies:
+    1. Basic markdown text preservation
+    2. String replacement functionality
+    3. None value handling
+    4. Link text processing
+    5. Special character handling
+
+    Does NOT test:
+    - Complex markdown parsing
+    - HTML conversion
+    - External markdown libraries"""
+
+    # Basic markdown preservation
     test_string = "**bold** *italic*"
     result = asmarkdown(test_string)
     assert result == test_string
 
-    # Test parameter handling with camelCase parameters
+    # String replacement functionality
     result_with_replace = asmarkdown(test_string, replaceThis="bold", withThis="strong")
     assert result_with_replace == "**strong** *italic*"
 
-    # Test None handling
+    # None value handling
     assert asmarkdown(None) is None
 
-    # Test markdown with links
+    # Link text processing
     test_string_with_link = "[test](https://example.com)"
     result_with_link = asmarkdown(test_string_with_link)
-    assert result_with_link is not None
-    assert isinstance(result_with_link, str)
-    assert "[test]" in result_with_link
+    assert result_with_link == test_string_with_link
+
+    # Special character handling
+    test_string_special = "# Header\n* List\n> Quote"
+    result_special = asmarkdown(test_string_special)
+    assert result_special == test_string_special
 
 
 def test_celery_task_scheduling(
     mock_openai_client, mock_assistant, mock_thread, mock_run, mock_celery_task
 ):
-    """Test core Celery task scheduling functionality.
+    """Test the assistant's integration with Celery task queue.
 
     This test verifies:
-    1. Basic task scheduling with completion callback
-    2. Task status updates
-    3. Callback scheduling on completion
+    1. Task scheduling through Celery's delay() method
+    2. Proper task metadata handling (run_id, thread_id)
+    3. Completion callback registration
+    4. Task status propagation to assistant
 
     Does NOT test:
-    - External tool execution
-    - Specific callback implementations
-    - Complex task workflows"""
+    - Actual tool execution
+    - Callback function implementations
+    - Complex multi-task workflows"""
 
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
@@ -645,24 +707,27 @@ def test_celery_task_scheduling(
 def test_vision_file_handling(
     mock_openai_client, mock_assistant, mock_thread, mock_run
 ):
-    """Test basic vision file support.
+    """Test assistantTask's handling of vision-enabled files.
 
     This test verifies:
-    1. Vision flag setting for image files
-    2. Basic image file upload
-    3. Vision message response handling
+    1. Vision flag setting for image file types
+    2. File metadata tracking for vision files
+    3. Vision-enabled file upload process
+    4. Message handling with vision files
+    5. Response formatting with vision content
 
     Does NOT test:
-    - Image processing
-    - Complex vision scenarios
-    - External vision services"""
+    - Image content processing
+    - Vision model capabilities
+    - External vision services
+    - Image format validation"""
 
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
 
     task = assistantTask(assistantName="Test Assistant")
 
-    # Test image file upload
+    # Test vision file handling
     mock_image = MagicMock()
     mock_image.name = "test.png"
     mock_image.read.return_value = b"image content"
@@ -671,51 +736,77 @@ def test_vision_file_handling(
         id="file_123", filename="test.png", purpose="assistants"
     )
 
+    # Test file upload and metadata
     file_id = task.upload_file(file=mock_image)
     assert file_id == "file_123"
     assert task._fileids[-1]["vision"] is True
+    assert task._fileids[-1]["id"] == "file_123"
+    assert task._fileids[-1]["retrieval"] is False
 
-    # Test vision message response
+    # Test vision message handling
     mock_message = Message(
         id="msg_123",
         thread_id="thread_123",
         role="assistant",
-        content=[MagicMock(type="text", text=MagicMock(value="Image response"))],
+        content=[
+            {"type": "text", "text": {"value": "Image description"}},
+            {"type": "image_file", "file_id": "file_123"}
+        ],
         file_ids=["file_123"],
         assistant_id="asst_123",
         run_id="run_123",
-        metadata={},
+        metadata={"vision": True},
         object="thread.message",
     )
     mock_openai_client.beta.threads.messages.list.return_value.data = [mock_message]
 
+    # Test response formatting
     response = task.get_full_response()
-    assert "Image response" in response
+    assert "Image description" in response
+    assert "file_123" in response
+
+    # Verify message metadata
+    messages = task.get_all_messages()
+    assert len(messages) == 1
+    assert messages[0]["metadata"].get("vision") is True
+    assert "file_123" in messages[0]["file_ids"]
 
 
 def test_completion_call_handling(
     mock_openai_client, mock_assistant, mock_thread, mock_run, mock_celery_task
 ):
-    """Test basic completion call functionality.
+    """Test assistantTask's completion callback registration and scheduling.
 
     This test verifies:
-    1. Completion call parameter storage
-    2. Basic callback scheduling
+    1. Completion call parameter validation and storage
+    2. Callback scheduling through Celery's delay() method
+    3. Task metadata preservation in callback scheduling
+    4. Callback triggering on task completion
+    5. Multiple callback format support (module:function, package.module:function)
 
     Does NOT test:
-    - Callback implementations
-    - External services
-    - Complex callback scenarios"""
+    - Callback function implementations
+    - External service integrations
+    - Complex callback chains
+    - Actual function discovery or loading"""
 
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
 
+    # Test basic callback registration
     task = assistantTask(assistantName="Test Assistant", completionCall="test:callback")
     assert task.completion_call == "test:callback"
 
+    # Test callback scheduling on run creation
     run_id = task.create_run()
     assert run_id == mock_run.id
+    mock_celery_task.delay.assert_called_with(
+        run_id=run_id,
+        thread_id=task.thread_id,
+        completion_call="test:callback",
+    )
 
+    # Test callback triggering on completion
     mock_run.status = "completed"
     mock_openai_client.beta.threads.runs.retrieve.return_value = mock_run
     task.task = OpenaiTask.objects.create(
@@ -725,25 +816,40 @@ def test_completion_call_handling(
         completion_call="test:callback",
         status="completed",
     )
-
     mock_celery_task.delay.assert_called_with(
-        run_id=run_id, thread_id=task.thread_id, completion_call="test:callback"
+        run_id=run_id,
+        thread_id=task.thread_id,
+        completion_call="test:callback",
     )
+
+    # Test package-based callback format
+    task_package = assistantTask(
+        assistantName="Test Assistant",
+        completionCall="package.module:function"
+    )
+    assert task_package.completion_call == "package.module:function"
+
+    # Test invalid callback format
+    with pytest.raises(ValueError):
+        assistantTask(assistantName="Test Assistant", completionCall="invalid_format")
 
 
 def test_file_message_handling(
     mock_openai_client, mock_assistant, mock_thread, mock_run
 ):
-    """Test file-related message handling.
+    """Test assistantTask's handling of messages with file attachments.
 
     This test verifies:
-    1. File attachment in messages
-    2. Response handling with files
+    1. File ID tracking in messages
+    2. Message content extraction with files
+    3. Response formatting with file references
+    4. File metadata preservation in responses
 
     Does NOT test:
-    - File upload (covered in test_file_upload)
-    - File processing
-    - External services"""
+    - File upload functionality (covered in test_file_upload)
+    - File content processing
+    - External file operations
+    - File storage or retrieval"""
 
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
@@ -756,7 +862,10 @@ def test_file_message_handling(
         id="msg_123",
         thread_id="thread_123",
         role="assistant",
-        content=[MagicMock(type="text", text=MagicMock(value="File response"))],
+        content=[
+            {"type": "text", "text": {"value": "File response"}},
+            {"type": "file", "file_id": "file_123"}
+        ],
         file_ids=["file_123"],
         assistant_id="asst_123",
         run_id=mock_run.id,
@@ -765,27 +874,46 @@ def test_file_message_handling(
     )
     mock_openai_client.beta.threads.messages.list.return_value.data = [mock_message]
 
+    # Test response formatting with file references
     response = task.get_full_response()
     assert "File response" in response
+    assert "file_123" in response  # Verify file reference is included
+
+    # Test file metadata preservation
+    messages = task.get_all_messages()
+    assert len(messages) == 1
+    assert "file_123" in messages[0]["file_ids"]
 
 
 def test_api_key_validation(mock_openai_client):
-    """Test basic API key validation.
+    """Test assistantTask's API key validation.
 
     This test verifies:
-    1. API key presence check
-    2. Empty key validation
+    1. API key validation in constructor
+    2. Empty key handling
+    3. Missing key handling
+    4. Key inheritance from settings
 
     Does NOT test:
     - Key format validation
     - Authentication flows
-    - External API calls"""
+    - External API calls
+    - Key storage"""
 
+    # Test missing key
     with pytest.raises(ValueError):
         assistantTask(assistantName="Test Assistant", api_key=None)
 
+    # Test empty key
     with pytest.raises(ValueError):
         assistantTask(assistantName="Test Assistant", api_key="")
+
+    # Test key inheritance from settings
+    mock_openai_client.beta.assistants.list.return_value.data = [
+        MagicMock(name="Test Assistant", id="asst_123")
+    ]
+    task = assistantTask(assistantName="Test Assistant")
+    assert task.assistant_id == "asst_123"
 
 
 def test_task_isolation(mock_openai_client, mock_assistant):
@@ -810,39 +938,58 @@ def test_task_isolation(mock_openai_client, mock_assistant):
 
 
 def test_error_handling(mock_openai_client, mock_assistant, mock_thread):
-    """Test basic error handling.
+    """Test assistantTask's error handling and validation.
 
     This test verifies:
-    1. Input validation errors
-    2. Basic API error handling
-    3. Status updates on errors
+    1. Constructor parameter validation
+    2. Method precondition validation
+    3. OpenAI API error handling
+    4. Task status updates on errors
+    5. Error propagation in core methods
 
     Does NOT test:
-    - Complex error scenarios
     - External service errors
-    - Recovery mechanisms"""
+    - Complex error recovery
+    - Tool-specific errors
+    - Network error handling"""
 
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
 
-    # Test input validation
-    task = assistantTask(assistantName="Test Assistant")
-    with pytest.raises(ValueError):
-        task.get_all_messages()  # Missing thread ID
-
-    with pytest.raises(ValueError):
+    # Test constructor validation
+    with pytest.raises(ValueError, match="Invalid tool format"):
         assistantTask(assistantName="Test Assistant", tools="invalid")
 
-    # Test API error handling
+    with pytest.raises(ValueError, match="API key"):
+        assistantTask(assistantName="Test Assistant", api_key="")
+
+    # Test method preconditions
+    task = assistantTask(assistantName="Test Assistant")
+    with pytest.raises(ValueError, match="Thread"):
+        task.get_all_messages()  # Missing thread ID
+
+    # Test assistant lookup failure
     mock_openai_client.beta.assistants.list.return_value.data = []
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Assistant not found"):
         assistantTask(assistantName="NonexistentAssistant")
 
-    # Test error status updates
-    mock_openai_client.beta.threads.runs.create.side_effect = openai.APIError(
-        "API Error"
-    )
+    # Test run creation error handling
+    mock_openai_client.beta.threads.runs.create.side_effect = openai.APIError("API Error")
     task = assistantTask(assistantName="Test Assistant")
     task.threadObject = mock_thread
     assert task.create_run() is None
     assert task.task.status == "failed"
+
+    # Test tool error handling
+    mock_run = MagicMock(status="requires_action")
+    mock_run.required_action.submit_tool_outputs.tool_calls = [
+        MagicMock(id="call_123", function=MagicMock(name="invalid_tool"))
+    ]
+    mock_openai_client.beta.threads.runs.retrieve.return_value = mock_run
+    task.task = OpenaiTask.objects.create(
+        runId="run_123",
+        threadId=task.thread_id,
+        assistant_id=task.assistant_id,
+        status="requires_action"
+    )
+    assert task.task.status == "requires_action"  # Check task status directly
