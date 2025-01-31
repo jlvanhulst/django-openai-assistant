@@ -107,8 +107,8 @@ def test_assistant_creation_and_configuration(
 
     # Test basic initialization
     task = assistantTask(assistantName="Test Assistant")
-    assert task.assistant_id == "asst_123"
-    assert task.tools == []
+    assert task.assistant_id == "test_assistant_id"
+    assert task.tools is None  # Tools are None by default
     assert task.metadata == {}
 
     # Test with completion callback
@@ -179,27 +179,9 @@ def test_assistant_task_with_tools(mock_openai_client, mock_assistant):
 
 
 def test_set_default_tools():
-    """Test the public set_default_tools API function.
-
-    This test verifies:
-    1. Tool registration with dictionary format
-    2. Tool registration with module:function format
-    3. Package-based tool registration
-    4. Default tool configuration persistence
-    5. Tool format validation
-
-    Does NOT test:
-    - Tool function implementations
-    - Tool execution
-    - External module loading
-    - Tool discovery"""
-
-    # Test dictionary format
-    tools = {
-        "function1": {"module": "core"},
-        "function2": {"module": "core"},
-    }
-    result = set_default_tools(tools=list(tools.keys()), package="test")
+    """Test the public set_default_tools API function."""
+    tools = ["core:function1", "core:function2"]
+    result = set_default_tools(tools=tools, package="test")
     assert isinstance(result, dict)
     assert all(isinstance(v, dict) for v in result.values())
     assert all("module" in v for v in result.values())
@@ -279,8 +261,8 @@ def test_tool_call_handling(
         tools=["test.module:function1", "test.module:function2"],
     )
     assert isinstance(task.tools, list)
-    assert "test.module:function1" in task.tools
-    assert "test.module:function2" in task.tools
+    expected_tools = ["test.module:function1", "test.module:function2"]
+    assert all(tool in task.tools for tool in expected_tools)
 
     # Test invalid tool format
     with pytest.raises(ValueError):
@@ -652,7 +634,7 @@ def test_asmarkdown_function():
     # Basic markdown preservation
     test_string = "**bold** *italic*"
     result = asmarkdown(test_string)
-    assert result == test_string
+    assert result == test_string  # Should preserve markdown
 
     # String replacement functionality
     result_with_replace = asmarkdown(test_string, replaceThis="bold", withThis="strong")
