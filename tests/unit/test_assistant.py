@@ -566,10 +566,14 @@ def test_response_formats(mock_openai_client, mock_assistant, mock_thread):
     5. Code block extraction
 
     Does NOT test:
+    - External API implementations
+    - Complex response chains
+    - Custom format handlers
     - Message retrieval (covered in test_message_handling)
     - Thread operations (covered in test_thread_message_handling)
     - External format processing
-    - Complex message chains"""
+    - Complex message chains
+    """
 
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
