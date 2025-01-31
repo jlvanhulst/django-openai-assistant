@@ -95,7 +95,8 @@ def asmarkdown(
     return result
 
 
-def _create_assistant(
+
+def createAssistant(
     name: str,
     instructions: str,
     model: Optional[str],
@@ -412,7 +413,7 @@ class assistantTask:
                 completion_call='demo:printResult',
                 metadata={'id': 'vic123'}
             )
-            task.create_run()
+            task.createRun()
 
         Retrieve an existing task:
             task = assistantTask(run_id=task_id)
@@ -574,7 +575,7 @@ class assistantTask:
             elif key == "tools":
                 self.tools = value
 
-    def create_run(self, temperature: float = 1.0) -> Optional[str]:
+    def createRun(self, temperature: float = 1.0) -> Optional[str]:
         """Start a new assistant run with the current thread and configuration.
 
         Creates a new run using the configured assistant and thread, then starts
@@ -624,7 +625,7 @@ class assistantTask:
         get_status.delay(f"{self.task.runId},{self.task.threadId}")
         return run_obj.id
 
-    def get_json_response(self) -> Optional[dict[str, Any]]:
+    def getJsonResponse(self) -> Optional[dict[str, Any]]:
         """Parse the assistant's response as JSON data.
 
         Automatically strips any 'json' prefix and markdown code block markers
@@ -642,7 +643,7 @@ class assistantTask:
                 return None
         return None
 
-    def get_markdown_response(
+    def getMarkdownResponse(
         self, replace_this: Optional[str] = None, with_this: Optional[str] = None
     ) -> Optional[str]:
         """Format the assistant's response as markdown with optional replacement.
@@ -656,7 +657,7 @@ class assistantTask:
         """
         return asmarkdown(self.response, replace_this, with_this)
 
-    def upload_file(
+    def uploadFile(
         self,
         file: Optional[Union[str, bytes, BinaryIO]] = None,
         file_content: Optional[bytes] = None,
@@ -736,22 +737,22 @@ class assistantTask:
         ]
         retrieval = retrieval or file_extension in retrieval_extensions
 
-        upload_file = self.client.files.create(
+        uploadFile = self.client.files.create(
             file=(filename, file_content), purpose="vision" if vision else "assistants"
         )
 
         self._fileids.append(
             {
-                "id": upload_file.id,
+                "id": uploadFile.id,
                 "filename": filename,
                 "vision": vision,
                 "retrieval": retrieval,
             }
         )
 
-        return upload_file.id
+        return uploadFile.id
 
-    def get_last_response(self) -> Optional[dict[str, Any]]:
+    def getLastResponse(self) -> Optional[dict[str, Any]]:
         """Get the last response message from the assistant.
 
         Returns:
@@ -766,7 +767,7 @@ class assistantTask:
         messages = self.client.beta.threads.messages.list(thread_id=self.thread_id)
         return messages.data[0] if messages.data else None
 
-    def get_all_messages(self) -> list[dict[str, Any]]:
+    def getAllMessages(self) -> list[dict[str, Any]]:
         """Retrieve all messages from the current thread in chronological order.
 
         Returns:
@@ -781,7 +782,7 @@ class assistantTask:
         messages = self.client.beta.threads.messages.list(thread_id=self.thread_id)
         return messages.data
 
-    def get_full_response(self) -> str:
+    def getFullResponse(self) -> str:
         """Get combined text responses from the assistant.
 
         Returns:
@@ -798,7 +799,7 @@ class assistantTask:
                         res += t.text.value
         return res
 
-    def retrieve_file(self, file_id: str) -> bytes:
+    def retrieveFile(self, file_id: str) -> bytes:
         """Download a file's content from OpenAI's servers.
 
         Args:
