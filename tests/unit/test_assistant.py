@@ -554,24 +554,83 @@ def test_response_formats(mock_openai_client, mock_assistant, mock_thread):
     mock_openai_client.beta.threads.create.return_value = mock_thread
 
     task = assistantTask(assistantName="Test Assistant")
+    task.threadObject = mock_thread
+    
+    # Test streaming response
+    mock_message = Message(
+        id="msg_123",
+        created_at=1234567890,
+        thread_id="thread_123",
+        role="assistant",
+        content=[
+            MagicMock(type="text", text=MagicMock(value="Part 1")),
+            MagicMock(type="text", text=MagicMock(value="Part 2")),
+            MagicMock(type="text", text=MagicMock(value="Part 3"))
+        ],
+        file_ids=[],
+        assistant_id="asst_123",
+        run_id="run_123",
+        metadata={},
+        object="thread.message"
+    )
+    mock_openai_client.beta.threads.messages.list.return_value.data = [mock_message]
+    
+    # Test multi-message response
+    full_response = task.get_full_response()
+    assert "Part 1" in full_response
+    assert "Part 2" in full_response
+    assert "Part 3" in full_response
     
     # Test JSON response parsing
-    task.response = '{"key": "value"}'
+    task.response = '{"key": "value", "nested": {"array": [1, 2, 3]}}'
     json_response = task.get_json_response()
-    assert json_response == {"key": "value"}
+    assert json_response["key"] == "value"
+    assert json_response["nested"]["array"] == [1, 2, 3]
     
     # Test markdown code block parsing
-    task.response = "```json\n{\"key\": \"value\"}\n```"
+    task.response = """```python
+def test():
+    return True
+```
+Some text
+```json
+{"key": "value"}
+```"""
     json_response = task.get_json_response()
     assert json_response == {"key": "value"}
     
+    markdown_response = task.get_markdown_response()
+    assert "```python" in markdown_response
+    assert "```json" in markdown_response
+    
     # Test markdown with replacements
-    task.response = "**bold** *italic*"
+    task.response = "**bold** *italic* [link](https://example.com)"
     markdown_response = task.get_markdown_response(
-        replace_this="bold",
-        with_this="strong"
+        replace_this="example.com",
+        with_this="test.com"
     )
-    assert markdown_response == "**strong** *italic*"
+    assert "test.com" in markdown_response
+    assert "**bold**" in markdown_response
+    
+    # Test error responses
+    mock_message = Message(
+        id="msg_124",
+        created_at=1234567890,
+        thread_id="thread_123",
+        role="assistant",
+        content=[MagicMock(
+            type="text",
+            text=MagicMock(value="Error: Invalid request")
+        )],
+        file_ids=[],
+        assistant_id="asst_123",
+        run_id="run_123",
+        metadata={"error": True},
+        object="thread.message"
+    )
+    mock_openai_client.beta.threads.messages.list.return_value.data = [mock_message]
+    error_response = task.get_full_response()
+    assert "Error:" in error_response
     
     # Test null responses
     task.response = None
