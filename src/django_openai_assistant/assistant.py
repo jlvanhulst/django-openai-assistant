@@ -95,7 +95,6 @@ def asmarkdown(
     return result
 
 
-
 def createAssistant(
     name: str,
     instructions: str,
@@ -189,7 +188,7 @@ def _getf(functionName: str) -> Optional[Callable]:
 
 def _get_tools(array: list[str], value: Optional[str] = None) -> list[dict]:
     """Convert tool strings to callable function dictionaries.
-    
+
     Internal implementation detail - not part of public API.
 
     Args:

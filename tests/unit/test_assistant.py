@@ -60,7 +60,7 @@ def mock_run():
         file_ids=[],
         metadata={},
         object="thread.run",
-        parallel_tool_calls=0  # Required field
+        parallel_tool_calls=0,  # Required field
     )
 
 
@@ -249,13 +249,13 @@ def test_tool_call_handling(
     mock_openai_client, mock_assistant, mock_thread, mock_run, mock_celery_task
 ):
     """Test assistantTask's public API for tool configuration and status handling.
-    
+
     This test verifies:
     1. Tool registration via constructor
     2. Tool string format validation
     3. Run status transitions during tool processing
     4. Task status persistence
-    
+
     Does NOT test:
     - Tool implementation details
     - Internal tool scheduling
@@ -268,7 +268,7 @@ def test_tool_call_handling(
     # Test tool registration and validation
     task = assistantTask(
         assistantName="Test Assistant",
-        tools=["test.module:function1", "test.module:function2"]
+        tools=["test.module:function1", "test.module:function2"],
     )
     assert isinstance(task.tools, list)
     assert "test.module:function1" in task.tools
@@ -313,9 +313,7 @@ def test_tool_call_handling(
     assert task.task.status == "completed"
 
     # Verify Celery task scheduling
-    mock_celery_task.delay.assert_called_with(
-        f"{run_id},{task.thread_id}"
-    )
+    mock_celery_task.delay.assert_called_with(f"{run_id},{task.thread_id}")
 
 
 def test_thread_message_handling(mock_openai_client, mock_assistant, mock_thread):
@@ -351,7 +349,7 @@ def test_thread_message_handling(mock_openai_client, mock_assistant, mock_thread
         run_id="run_123",
         metadata={"order": 1},
         status="completed",
-        object="thread.message"
+        object="thread.message",
     )
     mock_message2 = Message(
         id="msg_124",
@@ -364,10 +362,11 @@ def test_thread_message_handling(mock_openai_client, mock_assistant, mock_thread
         run_id="run_123",
         metadata={"order": 2},
         status="completed",
-        object="thread.message"
+        object="thread.message",
     )
     mock_openai_client.beta.threads.messages.list.return_value.data = [
-        mock_message2, mock_message1
+        mock_message2,
+        mock_message1,
     ]
 
     # Verify message list retrieval and ordering
@@ -496,14 +495,14 @@ def test_message_handling(mock_openai_client, mock_assistant, mock_thread):
             role="assistant",
             content=[
                 {"type": "text", "text": {"value": "Response 1"}},
-                {"type": "text", "text": {"value": "Response 2"}}
+                {"type": "text", "text": {"value": "Response 2"}},
             ],
             file_ids=[],
             assistant_id="asst_123",
             run_id="run_123",
             metadata={},
             status="completed",
-            object="thread.message"
+            object="thread.message",
         ),
         Message(
             id="msg_124",
@@ -516,8 +515,8 @@ def test_message_handling(mock_openai_client, mock_assistant, mock_thread):
             run_id="run_123",
             metadata={},
             status="completed",
-            object="thread.message"
-        )
+            object="thread.message",
+        ),
     ]
     mock_openai_client.beta.threads.messages.list.return_value.data = mock_messages
 
@@ -750,7 +749,7 @@ def test_vision_file_handling(
         role="assistant",
         content=[
             {"type": "text", "text": {"value": "Image description"}},
-            {"type": "image_file", "file_id": "file_123"}
+            {"type": "image_file", "file_id": "file_123"},
         ],
         file_ids=["file_123"],
         assistant_id="asst_123",
@@ -824,8 +823,7 @@ def test_completion_call_handling(
 
     # Test package-based callback format
     task_package = assistantTask(
-        assistantName="Test Assistant",
-        completionCall="package.module:function"
+        assistantName="Test Assistant", completionCall="package.module:function"
     )
     assert task_package.completion_call == "package.module:function"
 
@@ -864,7 +862,7 @@ def test_file_message_handling(
         role="assistant",
         content=[
             {"type": "text", "text": {"value": "File response"}},
-            {"type": "file", "file_id": "file_123"}
+            {"type": "file", "file_id": "file_123"},
         ],
         file_ids=["file_123"],
         assistant_id="asst_123",
@@ -974,7 +972,9 @@ def test_error_handling(mock_openai_client, mock_assistant, mock_thread):
         assistantTask(assistantName="NonexistentAssistant")
 
     # Test run creation error handling
-    mock_openai_client.beta.threads.runs.create.side_effect = openai.APIError("API Error")
+    mock_openai_client.beta.threads.runs.create.side_effect = openai.APIError(
+        "API Error"
+    )
     task = assistantTask(assistantName="Test Assistant")
     task.threadObject = mock_thread
     assert task.create_run() is None
@@ -990,6 +990,6 @@ def test_error_handling(mock_openai_client, mock_assistant, mock_thread):
         runId="run_123",
         threadId=task.thread_id,
         assistant_id=task.assistant_id,
-        status="requires_action"
+        status="requires_action",
     )
     assert task.task.status == "requires_action"  # Check task status directly
