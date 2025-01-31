@@ -15,7 +15,15 @@ keywords = ["django", "celery", "openai", "assistants"]
 description = "Django OpenAI Assistant"
 
 [project.optional-dependencies]
-dev = ["black", "flake8", "isort"]
+dev = [
+    "black",
+    "flake8",
+    "isort",
+    "pytest",
+    "pytest-django",
+    "pytest-mock",
+    "pytest-asyncio"
+]
 
 [tool.black]
 line-length = 88
