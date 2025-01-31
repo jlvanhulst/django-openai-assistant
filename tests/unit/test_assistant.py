@@ -9,7 +9,7 @@ from openai.types.beta.threads import Message, Run
 from django_openai_assistant.assistant import (
     asmarkdown,
     assistantTask,
-    createAssistant,
+    create_assistant,
     get_assistant,
     set_default_tools,
 )
@@ -118,7 +118,7 @@ def test_assistant_creation_and_configuration(
         "generic_tool1": {"module": "module1"},
         "generic_tool2": {"module": "module2"},
     }
-    new_assistant = createAssistant(
+    new_assistant = create_assistant(
         name="New Assistant",
         tools=list(tools.keys()),
         model="gpt-4",
@@ -876,7 +876,7 @@ def test_file_message_handling(
     assert "file_123" in response  # Verify file reference is included
 
     # Test file metadata preservation
-    messages = task.get_all_messages()
+    messages = task.getAllMessages()
     assert len(messages) == 1
     assert "file_123" in messages[0]["file_ids"]
 
