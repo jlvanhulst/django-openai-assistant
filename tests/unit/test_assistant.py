@@ -866,6 +866,213 @@ def test_vision_support(mock_openai_client, mock_assistant, mock_thread, mock_ru
         assert task._fileids[-1]["vision"] is True
         assert task._fileids[-1]["retrieval"] is False
 
+def test_calendar_integration(mock_openai_client, mock_assistant, mock_thread, mock_run):
+    """Test calendar integration based on vicbot/chatbot/calendar.py patterns"""
+    mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
+    mock_openai_client.beta.threads.create.return_value = mock_thread
+    
+    task = assistantTask(assistantName="Test Assistant")
+    task.prompt = "Schedule a meeting with john@example.com tomorrow at 2pm"
+    
+    # Mock tool call for calendar event creation
+    mock_run.status = "requires_action"
+    mock_run.required_action = MagicMock(
+        submit_tool_outputs=MagicMock(tool_calls=[
+            ToolCall(
+                id="call_123",
+                type="function",
+                function=MagicMock(
+                    name="create_event",
+                    arguments=json.dumps({
+                        "email": "test@example.com",
+                        "start": "2024-02-15T14:00:00",
+                        "end": "2024-02-15T15:00:00",
+                        "title": "Meeting with John",
+                        "description": "Scheduled via assistant",
+                        "attendees": ["john@example.com"],
+                        "add_google_meet_link": True
+                    })
+                )
+            )
+        ])
+    )
+    mock_openai_client.beta.threads.runs.retrieve.return_value = mock_run
+    
+    run_id = task.create_run()
+    assert run_id == mock_run.id
+    task.handle_tool_calls()
+    
+    # Test email integration with calendar invite
+    mock_run.status = "requires_action"
+    mock_run.required_action = MagicMock(
+        submit_tool_outputs=MagicMock(tool_calls=[
+            ToolCall(
+                id="call_456",
+                type="function",
+                function=MagicMock(
+                    name="send_email",
+                    arguments=json.dumps({
+                        "subject": "Meeting Invitation",
+                        "to": "john@example.com",
+                        "body": "I've scheduled a meeting for tomorrow at 2pm.",
+                        "calendar_event_id": "evt_123"
+                    })
+                )
+            )
+        ])
+    )
+    task.handle_tool_calls()
+
+def test_email_processing(mock_openai_client, mock_assistant, mock_thread, mock_run):
+    """Test email processing based on vicbot/chatbot/google.py patterns"""
+    mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
+    mock_openai_client.beta.threads.create.return_value = mock_thread
+    
+    task = assistantTask(assistantName="Test Assistant")
+    
+    # Test email with attachments
+    mock_file = MagicMock()
+    mock_file.name = "report.pdf"
+    mock_file.read.return_value = b"pdf content"
+    
+    mock_openai_client.files.create.return_value = MagicMock(
+        id="file_123",
+        filename="report.pdf",
+        bytes=len(b"pdf content"),
+        purpose="assistants"
+    )
+    
+    file_id = task.upload_file(file=mock_file)
+    task.prompt = "Send this report to john@example.com"
+    
+    mock_run.status = "requires_action"
+    mock_run.required_action = MagicMock(
+        submit_tool_outputs=MagicMock(tool_calls=[
+            ToolCall(
+                id="call_789",
+                type="function",
+                function=MagicMock(
+                    name="send_email",
+                    arguments=json.dumps({
+                        "subject": "Report",
+                        "to": "john@example.com",
+                        "body": "Please find the report attached.",
+                        "attachments": [{"file_id": file_id}]
+                    })
+                )
+            )
+        ])
+    )
+    mock_openai_client.beta.threads.runs.retrieve.return_value = mock_run
+    
+    run_id = task.create_run()
+    assert run_id == mock_run.id
+    task.handle_tool_calls()
+
+def test_rag_search_integration(mock_openai_client, mock_assistant, mock_thread, mock_run):
+    """Test RAG search integration based on vicbot/chatbot/pinecone.py patterns"""
+    mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
+    mock_openai_client.beta.threads.create.return_value = mock_thread
+    
+    task = assistantTask(assistantName="Test Assistant")
+    task.prompt = "Find companies working on AI infrastructure"
+    
+    # Mock RAG search tool call
+    mock_run.status = "requires_action"
+    mock_run.required_action = MagicMock(
+        submit_tool_outputs=MagicMock(tool_calls=[
+            ToolCall(
+                id="call_321",
+                type="function",
+                function=MagicMock(
+                    name="fuzzy_search",
+                    arguments=json.dumps({
+                        "query": "companies developing AI infrastructure and tooling",
+                        "results": 5,
+                        "pdf": True,
+                        "include_assessment": True
+                    })
+                )
+            )
+        ])
+    )
+    mock_openai_client.beta.threads.runs.retrieve.return_value = mock_run
+    
+    run_id = task.create_run()
+    assert run_id == mock_run.id
+    task.handle_tool_calls()
+    
+    # Test search result processing
+    mock_run.status = "requires_action"
+    mock_run.required_action = MagicMock(
+        submit_tool_outputs=MagicMock(tool_calls=[
+            ToolCall(
+                id="call_654",
+                type="function",
+                function=MagicMock(
+                    name="send_email",
+                    arguments=json.dumps({
+                        "subject": "AI Companies Research",
+                        "to": "user@example.com",
+                        "body": "Here are the companies I found...",
+                        "attachments": [{"file_id": "file_789"}]
+                    })
+                )
+            )
+        ])
+    )
+    task.handle_tool_calls()
+
+def test_file_upload_integration(mock_openai_client, mock_assistant, mock_thread, mock_run):
+    """Test file upload integration based on vicbot/chatbot/upload.py patterns"""
+    mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
+    mock_openai_client.beta.threads.create.return_value = mock_thread
+    
+    task = assistantTask(assistantName="Test Assistant")
+    
+    # Test file upload with vision support
+    mock_image = MagicMock()
+    mock_image.name = "diagram.png"
+    mock_image.read.return_value = b"image data"
+    
+    mock_openai_client.files.create.return_value = MagicMock(
+        id="file_987",
+        filename="diagram.png",
+        bytes=len(b"image data"),
+        purpose="assistants"
+    )
+    
+    file_id = task.upload_file(file=mock_image)
+    assert file_id == "file_987"
+    
+    # Test file processing with vision
+    task.prompt = "Analyze this diagram"
+    mock_run.status = "completed"
+    mock_run.required_action = None
+    mock_message = Message(
+        id="msg_123",
+        created_at=1234567890,
+        thread_id="thread_123",
+        role="assistant",
+        content=[
+            MagicMock(
+                type="text",
+                text=MagicMock(value="The diagram shows...")
+            )
+        ],
+        file_ids=["file_987"],
+        assistant_id="asst_123",
+        run_id=mock_run.id,
+        metadata={},
+        object="thread.message"
+    )
+    mock_openai_client.beta.threads.messages.list.return_value.data = [mock_message]
+    
+    run_id = task.create_run()
+    assert run_id == mock_run.id
+    response = task.get_full_response()
+    assert "The diagram shows" in response
+
 def test_error_handling(mock_openai_client, mock_assistant, mock_thread, mock_run):
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
