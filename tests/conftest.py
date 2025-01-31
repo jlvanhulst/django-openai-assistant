@@ -1,8 +1,5 @@
 from unittest.mock import MagicMock, patch
-
 import pytest
-from django.conf import settings
-from openai import OpenAI
 
 
 @pytest.fixture

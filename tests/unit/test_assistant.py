@@ -1,11 +1,9 @@
 import json
 from unittest.mock import MagicMock
 
-import openai
 import pytest
 from openai.types.beta import Assistant, Thread
 from openai.types.beta.threads import Message, Run
-from openai.types.beta.threads.runs import ToolCall
 
 from django_openai_assistant.assistant import (
     asmarkdown,
@@ -13,7 +11,6 @@ from django_openai_assistant.assistant import (
     _create_assistant,
     get_assistant,
     set_default_tools,
-    _call_tools_delay,
 )
 from django_openai_assistant.models import OpenaiTask
 

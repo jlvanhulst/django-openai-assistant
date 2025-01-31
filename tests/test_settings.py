@@ -1,5 +1,4 @@
 from os import environ
-from pathlib import Path
 
 SECRET_KEY = environ.get("DJANGO_SECRET_KEY", "dummy-secret-key-for-tests")
 INSTALLED_APPS = [
