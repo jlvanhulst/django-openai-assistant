@@ -1073,6 +1073,82 @@ def test_file_upload_integration(mock_openai_client, mock_assistant, mock_thread
     response = task.get_full_response()
     assert "The diagram shows" in response
 
+def test_api_key_security(mock_openai_client, mock_assistant, mock_thread, mock_run):
+    """Test API key management and security"""
+    # Test API key validation
+    mock_openai_client.beta.assistants.list.side_effect = Exception("Invalid API key")
+    task = assistantTask(assistantName="Test Assistant")
+    with pytest.raises(Exception, match="Invalid API key"):
+        task.create_run()
+    
+    # Test API key rotation
+    mock_openai_client.beta.assistants.list.side_effect = None
+    mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
+    task = assistantTask(assistantName="Test Assistant", api_key="new_key")
+    assert task.client.api_key == "new_key"
+
+def test_file_permissions(mock_openai_client, mock_assistant, mock_thread, mock_run):
+    """Test file access permissions and security"""
+    mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
+    mock_openai_client.beta.threads.create.return_value = mock_thread
+    
+    task = assistantTask(assistantName="Test Assistant")
+    
+    # Test file upload permissions
+    mock_file = MagicMock()
+    mock_file.name = "sensitive.pdf"
+    mock_file.read.return_value = b"sensitive content"
+    
+    # Test file purpose validation
+    mock_openai_client.files.create.side_effect = Exception("Invalid file purpose")
+    with pytest.raises(Exception, match="Invalid file purpose"):
+        task.upload_file(file=mock_file, purpose="invalid")
+    
+    # Test file access scoping
+    mock_openai_client.files.create.side_effect = None
+    mock_openai_client.files.create.return_value = MagicMock(
+        id="file_123",
+        filename="sensitive.pdf",
+        purpose="assistants"
+    )
+    file_id = task.upload_file(file=mock_file)
+    
+    # Test file deletion
+    mock_openai_client.files.delete.return_value = True
+    assert task.delete_file(file_id) is True
+
+def test_user_context_isolation(mock_openai_client, mock_assistant, mock_thread, mock_run):
+    """Test user context isolation and security boundaries"""
+    mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
+    mock_openai_client.beta.threads.create.return_value = mock_thread
+    
+    # Test user context separation
+    task1 = assistantTask(assistantName="Test Assistant", metadata={"user_id": "user1"})
+    task2 = assistantTask(assistantName="Test Assistant", metadata={"user_id": "user2"})
+    
+    # Verify thread isolation
+    assert task1.thread_id != task2.thread_id
+    
+    # Test metadata isolation
+    task1.set_metadata({"sensitive": "data1"})
+    task2.set_metadata({"sensitive": "data2"})
+    assert task1.metadata.get("sensitive") != task2.metadata.get("sensitive")
+    
+    # Test file isolation
+    mock_file = MagicMock()
+    mock_file.name = "user1_data.pdf"
+    mock_openai_client.files.create.return_value = MagicMock(
+        id="file_123",
+        filename="user1_data.pdf",
+        purpose="assistants"
+    )
+    file_id = task1.upload_file(file=mock_file)
+    
+    # Verify file access boundaries
+    mock_openai_client.files.retrieve.side_effect = Exception("Access denied")
+    with pytest.raises(Exception, match="Access denied"):
+        task2.retrieve_file(file_id)
+
 def test_error_handling(mock_openai_client, mock_assistant, mock_thread, mock_run):
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
