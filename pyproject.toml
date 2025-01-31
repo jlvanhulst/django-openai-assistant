@@ -5,7 +5,15 @@ build-backend = "hatchling.build"
 [project]
 name = "django-openai-assistant"
 version = "0.7.3"
-dependencies = ["openai>=1.33.0", "markdown", "django", "celery", "redis"]
+dependencies = [
+    "openai>=1.33.0",
+    "markdown",
+    "django",
+    "celery",
+    "redis",
+    "markdown-link-attr-modifier",
+    "pydantic>=2.0.0"
+]
 readme = "README.md"
 authors = [{name = "Jean-Luc Vanhulst", email = "jl@valor.vc"}]
 maintainers = [{name = "Jean-Luc Vanhulst", email = "jl@valor.vc"}]

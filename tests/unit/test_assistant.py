@@ -34,7 +34,13 @@ def mock_assistant():
 
 @pytest.fixture
 def mock_thread():
-    return Thread(id="thread_123", created_at=1234567890, metadata={}, object="thread")
+    return Thread(
+        id="thread_123",
+        created_at=1234567890,
+        metadata={},
+        object="thread",
+        tool_resources=None
+    )
 
 
 @pytest.fixture
@@ -466,6 +472,7 @@ def test_file_upload(mock_openai_client, mock_assistant):
     )
 
 
+@pytest.mark.django_db
 def test_message_handling(mock_openai_client, mock_assistant, mock_thread):
     """Test assistantTask's message content processing.
 
@@ -492,8 +499,20 @@ def test_message_handling(mock_openai_client, mock_assistant, mock_thread):
             thread_id="thread_123",
             role="assistant",
             content=[
-                {"type": "text", "text": {"value": "Response 1"}},
-                {"type": "text", "text": {"value": "Response 2"}},
+                {
+                    "type": "text",
+                    "text": {
+                        "value": "Response 1",
+                        "annotations": []
+                    }
+                },
+                {
+                    "type": "text",
+                    "text": {
+                        "value": "Response 2",
+                        "annotations": []
+                    }
+                }
             ],
             file_ids=[],
             assistant_id="asst_123",
@@ -653,6 +672,7 @@ def test_asmarkdown_function():
     assert result_special == test_string_special
 
 
+@pytest.mark.django_db
 def test_celery_task_scheduling(
     mock_openai_client, mock_assistant, mock_thread, mock_run, mock_celery_task
 ):
@@ -830,6 +850,7 @@ def test_completion_call_handling(
         assistantTask(assistantName="Test Assistant", completionCall="invalid_format")
 
 
+@pytest.mark.django_db
 def test_file_message_handling(
     mock_openai_client, mock_assistant, mock_thread, mock_run
 ):
@@ -897,11 +918,11 @@ def test_api_key_validation(mock_openai_client):
     - Key storage"""
 
     # Test missing key
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="API key"):
         assistantTask(assistantName="Test Assistant", api_key=None)
 
     # Test empty key
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="API key"):
         assistantTask(assistantName="Test Assistant", api_key="")
 
     # Test key inheritance from settings
@@ -912,6 +933,8 @@ def test_api_key_validation(mock_openai_client):
     assert task.assistant_id == "asst_123"
 
 
+@pytest.mark.django_db
+@pytest.mark.django_db
 def test_task_isolation(mock_openai_client, mock_assistant):
     """Test task instance isolation.
 
@@ -925,14 +948,27 @@ def test_task_isolation(mock_openai_client, mock_assistant):
     - External isolation"""
 
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
-
+    
+    # Create two tasks with different threads
+    mock_thread1 = Thread(id="thread_123", created_at=1234567890, metadata={}, object="thread")
+    mock_thread2 = Thread(id="thread_456", created_at=1234567890, metadata={}, object="thread")
+    
+    mock_openai_client.beta.threads.create.side_effect = [mock_thread1, mock_thread2]
+    
     task1 = assistantTask(assistantName="Test Assistant", metadata={"key": "value1"})
     task2 = assistantTask(assistantName="Test Assistant", metadata={"key": "value2"})
+    
+    # Create threads
+    mock_openai_client.beta.threads.create.return_value = mock_thread1
+    task1.createRun()
+    mock_openai_client.beta.threads.create.return_value = mock_thread2
+    task2.createRun()
 
     assert task1.metadata != task2.metadata
     assert task1.thread_id != task2.thread_id
 
 
+@pytest.mark.django_db
 def test_error_handling(mock_openai_client, mock_assistant, mock_thread):
     """Test assistantTask's error handling and validation.
 
@@ -953,7 +989,7 @@ def test_error_handling(mock_openai_client, mock_assistant, mock_thread):
     mock_openai_client.beta.threads.create.return_value = mock_thread
 
     # Test constructor validation
-    with pytest.raises(ValueError, match="Invalid tool format"):
+    with pytest.raises(ValueError, match="tools must be a list of tool identifiers"):
         assistantTask(assistantName="Test Assistant", tools="invalid")
 
     with pytest.raises(ValueError, match="API key"):

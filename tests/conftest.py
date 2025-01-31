@@ -7,6 +7,25 @@ def mock_openai_client():
     with patch("openai.OpenAI") as mock_client:
         client = MagicMock()
         mock_client.return_value = client
+        client.api_key = "test-api-key"
+        client.beta.assistants.list.return_value.data = [
+            MagicMock(name="Test Assistant", id="test_assistant_id")
+        ]
+        client.beta.threads.messages.list.return_value.data = [
+            MagicMock(
+                id="test_message_id",
+                created_at=1234567890,
+                thread_id="test_thread_id",
+                role="assistant",
+                content=[{"type": "text", "text": {"value": "Test response", "annotations": []}}],
+                file_ids=[],
+                assistant_id="test_assistant_id",
+                run_id="test_run_id",
+                metadata={},
+                status="completed",
+                object="thread.message"
+            )
+        ]
         yield client
 
 
