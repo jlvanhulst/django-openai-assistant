@@ -39,7 +39,7 @@ def mock_thread():
         created_at=1234567890,
         metadata={},
         object="thread",
-        tool_resources=None
+        tool_resources=None,
     )
 
 
@@ -499,20 +499,8 @@ def test_message_handling(mock_openai_client, mock_assistant, mock_thread):
             thread_id="thread_123",
             role="assistant",
             content=[
-                {
-                    "type": "text",
-                    "text": {
-                        "value": "Response 1",
-                        "annotations": []
-                    }
-                },
-                {
-                    "type": "text",
-                    "text": {
-                        "value": "Response 2",
-                        "annotations": []
-                    }
-                }
+                {"type": "text", "text": {"value": "Response 1", "annotations": []}},
+                {"type": "text", "text": {"value": "Response 2", "annotations": []}},
             ],
             file_ids=[],
             assistant_id="asst_123",
@@ -948,16 +936,20 @@ def test_task_isolation(mock_openai_client, mock_assistant):
     - External isolation"""
 
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
-    
+
     # Create two tasks with different threads
-    mock_thread1 = Thread(id="thread_123", created_at=1234567890, metadata={}, object="thread")
-    mock_thread2 = Thread(id="thread_456", created_at=1234567890, metadata={}, object="thread")
-    
+    mock_thread1 = Thread(
+        id="thread_123", created_at=1234567890, metadata={}, object="thread"
+    )
+    mock_thread2 = Thread(
+        id="thread_456", created_at=1234567890, metadata={}, object="thread"
+    )
+
     mock_openai_client.beta.threads.create.side_effect = [mock_thread1, mock_thread2]
-    
+
     task1 = assistantTask(assistantName="Test Assistant", metadata={"key": "value1"})
     task2 = assistantTask(assistantName="Test Assistant", metadata={"key": "value2"})
-    
+
     # Create threads
     mock_openai_client.beta.threads.create.return_value = mock_thread1
     task1.createRun()

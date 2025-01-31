@@ -17,13 +17,18 @@ def mock_openai_client():
                 created_at=1234567890,
                 thread_id="test_thread_id",
                 role="assistant",
-                content=[{"type": "text", "text": {"value": "Test response", "annotations": []}}],
+                content=[
+                    {
+                        "type": "text",
+                        "text": {"value": "Test response", "annotations": []},
+                    }
+                ],
                 file_ids=[],
                 assistant_id="test_assistant_id",
                 run_id="test_run_id",
                 metadata={},
                 status="completed",
-                object="thread.message"
+                object="thread.message",
             )
         ]
         yield client
