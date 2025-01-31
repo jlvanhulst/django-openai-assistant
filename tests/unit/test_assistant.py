@@ -878,13 +878,7 @@ def test_file_message_handling(
         thread_id="thread_123",
         role="assistant",
         content=[
-            {
-                "type": "text",
-                "text": {
-                    "value": "File response",
-                    "annotations": []
-                }
-            }
+            {"type": "text", "text": {"value": "File response", "annotations": []}}
         ],
         file_ids=["file_123"],
         assistant_id="asst_123",
@@ -892,7 +886,7 @@ def test_file_message_handling(
         metadata={},
         created_at=1234567890,
         status="completed",
-        object="thread.message"
+        object="thread.message",
     )
     mock_openai_client.beta.threads.messages.list.return_value.data = [mock_message]
 

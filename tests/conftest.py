@@ -9,7 +9,7 @@ def mock_openai_client():
         client = MagicMock()
         mock_client.return_value = client
         client.api_key = os.environ.get("OPENAI_API_KEY", "mock-key")
-        
+
         # Mock assistants list
         mock_assistant = {
             "id": "test_assistant_id",
@@ -21,7 +21,7 @@ def mock_openai_client():
             "file_ids": [],
             "metadata": {},
             "created_at": 1234567890,
-            "object": "assistant"
+            "object": "assistant",
         }
         mock_list = MagicMock()
         mock_list.data = [mock_assistant]
@@ -33,7 +33,7 @@ def mock_openai_client():
             "id": "test_thread_id",
             "created_at": 1234567890,
             "metadata": {},
-            "object": "thread"
+            "object": "thread",
         }
         client.beta.threads.create.return_value = mock_thread
 
@@ -42,19 +42,15 @@ def mock_openai_client():
             "id": "test_message_id",
             "thread_id": "test_thread_id",
             "role": "assistant",
-            "content": [{
-                "type": "text",
-                "text": {
-                    "value": "Test response",
-                    "annotations": []
-                }
-            }],
+            "content": [
+                {"type": "text", "text": {"value": "Test response", "annotations": []}}
+            ],
             "file_ids": [],
             "assistant_id": "test_assistant_id",
             "run_id": "test_run_id",
             "created_at": 1234567890,
             "metadata": {},
-            "object": "thread.message"
+            "object": "thread.message",
         }
         mock_messages = MagicMock()
         mock_messages.data = [mock_message]
@@ -79,11 +75,11 @@ def mock_openai_client():
             "tools": [],
             "file_ids": [],
             "metadata": {},
-            "object": "thread.run"
+            "object": "thread.run",
         }
         client.beta.threads.runs.create.return_value = mock_run
         client.beta.threads.runs.retrieve.return_value = mock_run
-        
+
         yield client
 
 
