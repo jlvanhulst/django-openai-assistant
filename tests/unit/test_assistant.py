@@ -631,8 +631,10 @@ def test_response_formats(mock_openai_client, mock_assistant, mock_thread):
     # Test JSON response parsing
     task.response = '{"key": "value", "nested": {"array": [1, 2, 3]}}'
     json_response = task.get_json_response()
-    assert json_response["key"] == "value"
-    assert json_response["nested"]["array"] == [1, 2, 3]
+    assert isinstance(json_response, dict)
+    assert json_response.get("key") == "value"
+    assert isinstance(json_response.get("nested"), dict)
+    assert json_response.get("nested", {}).get("array") == [1, 2, 3]
     
     # Test markdown code block parsing
     task.response = """```python
@@ -647,6 +649,7 @@ Some text
     assert json_response == {"key": "value"}
     
     markdown_response = task.get_markdown_response()
+    assert isinstance(markdown_response, str)
     assert "```python" in markdown_response
     assert "```json" in markdown_response
     
@@ -656,6 +659,7 @@ Some text
         replace_this="example.com",
         with_this="test.com"
     )
+    assert isinstance(markdown_response, str)
     assert "test.com" in markdown_response
     assert "**bold**" in markdown_response
     
@@ -735,7 +739,7 @@ def test_celery_integration(mock_openai_client, mock_assistant, mock_thread, moc
     mock_run.status = "completed"
     mock_openai_client.beta.threads.runs.retrieve.return_value = mock_run
     task.task.status = "completed"
-    task.task.completion_call = "chatbot.google:replyToEmail"
+    setattr(task.task, "completion_call", "chatbot.google:replyToEmail")
     task.task.save()
     
     status = get_status(f"{task.run_id},{task.thread_id}")
