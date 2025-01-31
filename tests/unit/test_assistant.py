@@ -370,6 +370,64 @@ def test_asmarkdown_function():
     )
     assert result_with_replace == "**strong** *italic*"
 
+def test_celery_integration(mock_openai_client, mock_assistant, mock_thread, mock_run, mock_celery_task):
+    mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
+    mock_openai_client.beta.threads.create.return_value = mock_thread
+    
+    # Test async task queuing
+    task = assistantTask(
+        assistantName="Test Assistant",
+        metadata={"user_email": "test@example.com"},
+        completionCall="chatbot.google:replyToEmail"
+    )
+    task.prompt = "Process this email"
+    run_id = task.create_run()
+    
+    mock_celery_task.delay.assert_called_once_with(
+        run_id=run_id,
+        thread_id=task.thread_id,
+        completion_call="chatbot.google:replyToEmail"
+    )
+    
+    # Test task status monitoring
+    mock_run.status = "in_progress"
+    mock_openai_client.beta.threads.runs.retrieve.return_value = mock_run
+    task.task = OpenaiTask.objects.create(
+        runId=run_id,
+        threadId="thread_123",
+        assistant_id="asst_123",
+        status="in_progress"
+    )
+    task.threadObject = mock_thread
+    task.runObject = mock_run
+    
+    from django_openai_assistant.assistant import get_status
+    status = get_status(f"{task.run_id},{task.thread_id}")
+    assert task.task.status == "in_progress"
+    
+    # Test completion callback
+    mock_run.status = "completed"
+    mock_openai_client.beta.threads.runs.retrieve.return_value = mock_run
+    task.task.status = "completed"
+    task.task.completion_call = "chatbot.google:replyToEmail"
+    task.task.save()
+    
+    status = get_status(f"{task.run_id},{task.thread_id}")
+    mock_celery_task.delay.assert_called_with(
+        run_id=run_id,
+        thread_id=task.thread_id,
+        completion_call="chatbot.google:replyToEmail"
+    )
+    
+    # Test error handling in task
+    mock_run.status = "failed"
+    mock_openai_client.beta.threads.runs.retrieve.return_value = mock_run
+    task.task.status = "failed"
+    task.task.save()
+    
+    status = get_status(f"{task.run_id},{task.thread_id}")
+    assert task.task.status == "failed"
+    
 def test_error_handling(mock_openai_client, mock_assistant, mock_thread, mock_run):
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
