@@ -572,7 +572,7 @@ class assistantTask:
             elif key == "tools":
                 self.tools = value
 
-    def createRun(self, temperature: float = 1.0) -> Optional[str]:
+    def createRun(self, temperature: Optional[float] = None) -> Optional[str]:
         """Start a new assistant run with the current thread and configuration.
 
         Creates a new run using the configured assistant and thread, then starts
@@ -580,8 +580,9 @@ class assistantTask:
         randomness.
 
         Args:
-            temperature: Sampling temperature (0.0-2.0). Higher values increase
-                randomness, lower values make output more deterministic.
+            temperature: Optional sampling temperature (0.0-2.0). Higher values increase
+                randomness, lower values make output more deterministic. If not provided,
+                no temperature will be set.
 
         Returns:
             Optional[str]: The run ID if successfully created, None if creation
@@ -599,7 +600,7 @@ class assistantTask:
             run_obj = self.client.beta.threads.runs.create(
                 thread_id=self.thread_id,
                 assistant_id=self.assistant_id,
-                temperature=temperature,
+                **({"temperature": temperature} if temperature is not None else {})
             )
         except Exception as exc:
             print(f"Create thread failed: {exc}")
