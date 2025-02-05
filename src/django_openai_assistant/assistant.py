@@ -227,7 +227,7 @@ def call_tools_delay(
 
     for t in tool_calls:
         #functionCall = getTools(tools,t.function.name)
-        tasks.append( _callTool.s( {"tool_call_id": t.id,"function": t.function.name, "arguments" :t.function.arguments }, comboId=comboId) )
+        tasks.append( _callTool.s( {"tool_call_id": t.id,"function": t.function.name, "arguments" :t.function.arguments }, comboId=combo_id) )
         print('function call added to chain '+t.function.name+'('+t.function.arguments+')')
 
     if len(tasks) > 0:
@@ -611,32 +611,16 @@ class assistantTask:
         except Exception as exc:
             print(f"Create thread failed: {exc}")
             return None
-        try: 
+        try:
             self.task = OpenaiTask.objects.create( assistantId=self.assistant_id, runId=run.id, threadId=self.thread_id, completionCall=self.completionCall, tools=None if self.tools is None else ",".join(self.tools), meta = self._metadata    )
         except Exception as e:
             print('create run failed '+str(e))
             return None
 
         get_status.delay(f"{self.task.runId},{self.task.threadId}")
-        return run_obj.id
+        return run.id
 
-    def getJsonResponse(self) -> Optional[dict[str, Any]]:
-        """Parse the assistant's response as JSON data.
-
-        Automatically strips any 'json' prefix and markdown code block markers
-        from the response before attempting to parse.
-
-        Returns:
-            Optional[dict[str, Any]]: Parsed JSON data if successful, None if
-                parsing fails or no response exists
-        """
-        if self.response is not None:
-            res = self.response.replace("json", "").replace("```", "")
-
-        get_status.delay(f"{self.task.runId},{self.task.threadId}")
-        return run_obj.id
-
-    def getJsonResponse(self) -> Optional[dict[str, Any]]:
+    def jsonResponse(self) -> Optional[dict[str, Any]]:
         """Parse the assistant's response as JSON data.
 
         Automatically strips any 'json' prefix and markdown code block markers
@@ -654,7 +638,7 @@ class assistantTask:
                 return None
         return None
 
-    def getMarkdownResponse(
+    def markdownResponse(
         self, replace_this: Optional[str] = None, with_this: Optional[str] = None
     ) -> Optional[str]:
         """Format the assistant's response as markdown with optional replacement.

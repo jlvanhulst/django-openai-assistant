@@ -61,6 +61,12 @@ See https://medium.com/@jlvalorvc/building-a-scalable-openai-assistant-processor
 
 
 ## Version history:
+0.7.6
+- fixes
+
+0.7.5
+- fixes
+
 0.7.4
 - First version with some Devin 'help'. Working on a testable, lintable version. Stay tuned and watch along in github. 
 - Temperature has been made optional (instead of default 1 when not provided) because the new o1 / o3 models don't allow it.
