@@ -121,7 +121,7 @@ def createAssistant(
     return assistant
 
 
-def get_assistant(**kwargs) -> Union[Any, list[Any]]:
+def getAssistant(**kwargs) -> Union[Any, list[Any]]:
     """Get an OpenAI Assistant object to run a task with.
 
     Args:
@@ -226,18 +226,9 @@ def call_tools_delay(
         set_default_tools(tools=tools)
 
     for t in tool_calls:
-        # functionCall = getTools(tools,t.function.name)
-        tasks.append(
-            _callTool.s(
-                {
-                    "tool_call_id": t.id,
-                    "function": t.function.name,
-                    "arguments": t.function.arguments,
-                },
-                combo_id=combo_id,
-            )
-        )
-        print(f"Function call added to chain {t.function.name}({t.function.arguments})")
+        #functionCall = getTools(tools,t.function.name)
+        tasks.append( _callTool.s( {"tool_call_id": t.id,"function": t.function.name, "arguments" :t.function.arguments }, comboId=comboId) )
+        print('function call added to chain '+t.function.name+'('+t.function.arguments+')')
 
     if len(tasks) > 0:
         # Create a group for function calls and submission
@@ -245,6 +236,21 @@ def call_tools_delay(
         gr.delay()
     return gr
 
+
+@shared_task(name="call single tool")
+def _callTool(tool_call: dict, comboId: Optional[str] = None) -> dict:
+    """
+    Call a single tool as a Celery task.
+
+    Args:
+        tool_call: Dictionary containing function name and arguments
+        comboId: Optional thread/run combo ID string
+
+    Returns:
+        Dictionary containing comboId and tool output
+    """
+    functionName = tool_call["function"]
+    attributes = json.loads(tool_call["arguments"])
 
 @shared_task(name="call single tool")
 def _callTool(tool_call: dict, comboId: Optional[str] = None) -> dict:
@@ -535,10 +541,11 @@ class assistantTask:
                 key == "run_id"
                 or key == "runId"
                 or key == "comboId"
+                or key == "combo_id"
                 or key == "thread_id"
                 or key == "threadId"
             ):
-                if key == "comboId":
+                if key == "comboId" or key == "combo_id":
                     value = value.split(",")[0]
                 if key == "threadId" or key == "thread_id":
                     self.task = OpenaiTask.objects.get(threadId=value)
@@ -557,22 +564,22 @@ class assistantTask:
                         thread_id=self.task.threadId
                     )
                     self._metadata = self.task.meta
-            elif key == "assistant_name":
+            elif key == "assistant_name" or key == "name" or key == "assistantName":
                 self._assistant_name = value
-                self.assistant_object = get_assistant(name=self._assistant_name)
+                self.assistant_object = getAssistant(name=self._assistant_name)
                 if self.assistant_object is None:
                     msg = f"Assistant {self._assistant_name} not found in OpenAI"
                     raise ValueError(msg)
             elif key == "prompt":
                 self.prompt = value
-            elif key == "completion_call":
-                self.completion_call = value
+            elif key == "completion_call" or key == "completionCall":
+                self.completionCall = value
             elif key == "metadata":
                 self._metadata = value
             elif key == "tools":
                 self.tools = value
 
-    def createRun(self, temperature: float = 1.0) -> Optional[str]:
+    def createRun(self, temperature: Optional[float] = None) -> Optional[str]:
         """Start a new assistant run with the current thread and configuration.
 
         Creates a new run using the configured assistant and thread, then starts
@@ -596,28 +603,35 @@ class assistantTask:
         print(f"Creating run for thread {self.thread_id}")
 
         try:
-            run_obj = self.client.beta.threads.runs.create(
-                thread_id=self.thread_id,
-                assistant_id=self.assistant_id,
-                temperature=temperature,
+            run = self.client.beta.threads.runs.create(
+            thread_id=self.thread_id,
+            assistant_id= self.assistant_id,
+            temperature=temperature,
             )
         except Exception as exc:
             print(f"Create thread failed: {exc}")
             return None
-
-        try:
-            self.task = OpenaiTask.objects.create(
-                assistant_id=self.assistant_id,
-                run_id=run_obj.id,
-                thread_id=self.thread_id,
-                completion_call=self.completion_call,
-                tools=(None if self.tools is None else ",".join(self.tools)),
-                meta=self._metadata,
-            )
-            self.task.save()
-        except Exception as exc:
-            print(f"Create run failed: {exc}")
+        try: 
+            self.task = OpenaiTask.objects.create( assistantId=self.assistant_id, runId=run.id, threadId=self.thread_id, completionCall=self.completionCall, tools=None if self.tools is None else ",".join(self.tools), meta = self._metadata    )
+        except Exception as e:
+            print('create run failed '+str(e))
             return None
+
+        get_status.delay(f"{self.task.runId},{self.task.threadId}")
+        return run_obj.id
+
+    def getJsonResponse(self) -> Optional[dict[str, Any]]:
+        """Parse the assistant's response as JSON data.
+
+        Automatically strips any 'json' prefix and markdown code block markers
+        from the response before attempting to parse.
+
+        Returns:
+            Optional[dict[str, Any]]: Parsed JSON data if successful, None if
+                parsing fails or no response exists
+        """
+        if self.response is not None:
+            res = self.response.replace("json", "").replace("```", "")
 
         get_status.delay(f"{self.task.runId},{self.task.threadId}")
         return run_obj.id
@@ -638,6 +652,78 @@ class assistantTask:
                 return json.loads(res, strict=False)
             except json.JSONDecodeError:
                 return None
+        return None
+
+    def getMarkdownResponse(
+        self, replace_this: Optional[str] = None, with_this: Optional[str] = None
+    ) -> Optional[str]:
+        """Format the assistant's response as markdown with optional replacement.
+
+        Args:
+            replace_this: Text to find in the response
+            with_this: Text to use as replacement
+
+        Returns:
+            Optional[str]: Markdown formatted response or None
+        """
+        return asmarkdown(self.response, replace_this, with_this)
+
+    def uploadFile(
+        self,
+        file: Optional[Union[str, bytes, BinaryIO]] = None,
+        file_content: Optional[bytes] = None,
+        filename: str = "",
+        vision: bool = False,
+        retrieval: bool = False,
+        **kwargs,
+    ) -> str:
+        """Upload a file to OpenAI for use in the Thread.
+
+        Args:
+            file: File path, bytes, or file-like object to upload
+            file_content: Raw bytes content of the file if not using file parameter
+            filename: Name of the file to use
+            vision: Whether to use the file for vision tasks
+            retrieval: Whether to use the file for retrieval tasks
+            **kwargs: Additional arguments to pass to the OpenAI API
+
+        Returns:
+            str: The ID of the uploaded file from OpenAI
+
+        Raises:
+            ValueError: If filename missing or no file/content provided
+        """
+        if not filename:
+            raise ValueError("filename is required")
+
+        if file_content is None:
+            if file is None:
+                raise ValueError("Either file or file_content must be provided")
+            try:
+                if isinstance(file, str):
+                    with open(file, "rb") as f:
+                        file_content = f.read()
+                elif isinstance(file, (bytes, bytearray, memoryview)):
+                    file_content = bytes(file)
+                elif hasattr(file, "read"):
+                    try:
+                        file_content = file.read()
+                        if not isinstance(file_content, bytes):
+                            file_content = bytes(file_content)
+                    except (TypeError, AttributeError):
+                        raise ValueError("File object must support reading bytes")
+                else:
+                    raise ValueError(
+                        "File must be a path string, bytes, or file-like object"
+                    )
+            except (AttributeError, IOError) as exc:
+                raise ValueError(f"Could not read from file: {exc}")
+
+        file_extension = filename.split(".")[-1].lower()
+
+        image_extensions = ["jpg", "jpeg", "png", "gif", "bmp", "tiff"]
+        vision = vision or file_extension in image_extensions
+
         return None
 
     def getMarkdownResponse(
