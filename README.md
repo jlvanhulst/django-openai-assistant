@@ -61,6 +61,9 @@ See https://medium.com/@jlvalorvc/building-a-scalable-openai-assistant-processor
 
 
 ## Version history:
+0.7.7
+- more fixes double entry
+
 0.7.6
 - fixes
 

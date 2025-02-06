@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "django-openai-assistant"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = ["openai", "markdown"]
 readme = "README.md"
 authors = [{name = "Jean-Luc Vanhulst", email = "jl@valor.vc"}]

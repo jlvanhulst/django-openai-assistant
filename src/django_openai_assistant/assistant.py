@@ -252,21 +252,6 @@ def _callTool(tool_call: dict, comboId: Optional[str] = None) -> dict:
     functionName = tool_call["function"]
     attributes = json.loads(tool_call["arguments"])
 
-@shared_task(name="call single tool")
-def _callTool(tool_call: dict, comboId: Optional[str] = None) -> dict:
-    """
-    Call a single tool as a Celery task.
-
-    Args:
-        tool_call: Dictionary containing function name and arguments
-        comboId: Optional thread/run combo ID string
-
-    Returns:
-        Dictionary containing comboId and tool output
-    """
-    functionName = tool_call["function"]
-    attributes = json.loads(tool_call["arguments"])
-
     try:
         call = _getf(functionName)
         if call is None:
