@@ -85,7 +85,12 @@ def test_assistant_creation_and_configuration(mock_openai_client, mock_assistant
         "fuzzy_search": {"module": "pinecone"},
         "create_event": {"module": "calendar"},
     }
-    new_assistant = createAssistant(name="New Assistant", tools=tools, model="gpt-4")
+    new_assistant = createAssistant(
+        name="New Assistant",
+        tools=tools,
+        model="gpt-4",
+        instructions="Test instructions",
+    )
     assert new_assistant.id == "asst_123"
     assert new_assistant.model == "gpt-4"
 
@@ -140,6 +145,7 @@ def test_create_run(mock_openai_client, mock_assistant, mock_thread, mock_run):
     assert task.run_id == "run_123"
 
 
+@pytest.mark.django_db
 def test_tool_calling_and_completion(
     mock_openai_client, mock_assistant, mock_thread, mock_run
 ):
@@ -255,7 +261,7 @@ def test_run_status_tracking(mock_openai_client, mock_assistant, mock_thread, mo
         task.threadObject = mock_thread
         task.task = MagicMock(runId="run_123", threadId="thread_123")
 
-        current_status = task.get_run_status()
+        current_status = task.getRunStatus()
         assert current_status == status
 
         if status == "completed":
@@ -347,10 +353,8 @@ def test_response_formats(mock_openai_client, mock_assistant, mock_thread):
 
     # Test markdown with replacements
     task.response = "**bold** *italic*"
-    markdown_response = task.getMarkdownResponse(
-        replace_this="bold", with_this="strong"
-    )
-    assert markdown_response == "**strong** *italic*"
+    markdown_response = task.getMarkdownResponse(replaceThis="bold", withThis="strong")
+    assert "<p><strong>strong</strong> <em>italic</em></p>" == markdown_response
 
     # Test null responses
     task.response = None
@@ -439,6 +443,7 @@ def test_celery_integration(
     assert task.task.status == "failed"
 
 
+@pytest.mark.django_db
 def test_vision_support(mock_openai_client, mock_assistant, mock_thread, mock_run):
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
@@ -487,6 +492,8 @@ def test_vision_support(mock_openai_client, mock_assistant, mock_thread, mock_ru
     mock_openai_client.beta.threads.messages.list.return_value.data = [mock_message]
 
     task.prompt = "Analyze this image"
+    task.threadObject = mock_thread
+    task.task = MagicMock(threadId="thread_123")
     run_id = task.createRun()
     assert run_id == mock_run.id
 
@@ -543,6 +550,7 @@ def test_vision_support(mock_openai_client, mock_assistant, mock_thread, mock_ru
 def test_error_handling(mock_openai_client, mock_assistant, mock_thread, mock_run):
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
+    mock_openai_client.beta.threads.create.return_value = mock_thread
 
     # Test missing thread ID
     task = assistantTask(assistantName="Test Assistant")
@@ -573,5 +581,5 @@ def test_error_handling(mock_openai_client, mock_assistant, mock_thread, mock_ru
     task = assistantTask(assistantName="Test Assistant")
     task.runObject = mock_run
     task.task = MagicMock(runId="run_123")
-    status = task.get_run_status()
+    status = task.getRunStatus()
     assert status == "failed"
