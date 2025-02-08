@@ -16,11 +16,13 @@ description = "Django OpenAI Assistant"
 
 [project.optional-dependencies]
 dev = [
-    "black",
-    "flake8",
+    "black>=22.3.0",
+    "flake8>=4.0.1",
     "isort",
-    "pytest",
-    "pytest-django",
+    "pytest>=7.0.0",
+    "pytest-django>=4.5.0",
+    "pytest-celery>=0.0.0",
+    "pytest-redis>=3.0.0",
     "pytest-mock",
     "pytest-asyncio"
 ]

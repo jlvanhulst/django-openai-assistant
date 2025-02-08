@@ -32,5 +32,7 @@ jobs:
         DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         REDIS_URL: ${{ secrets.REDIS_URL }}
+        DJANGO_SETTINGS_MODULE: tests.settings
+        CELERY_BROKER_URL: redis://localhost:6379/0
       run: |
         python -m pytest tests/
