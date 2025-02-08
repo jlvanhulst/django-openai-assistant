@@ -226,9 +226,18 @@ def call_tools_delay(
         set_default_tools(tools=tools)
 
     for t in tool_calls:
-        #functionCall = getTools(tools,t.function.name)
-        tasks.append( _callTool.s( {"tool_call_id": t.id,"function": t.function.name, "arguments" :t.function.arguments }, comboId=combo_id) )
-        print('function call added to chain '+t.function.name+'('+t.function.arguments+')')
+        # functionCall = getTools(tools,t.function.name)
+        tasks.append(
+            _callTool.s(
+                {
+                    "tool_call_id": t.id,
+                    "function": t.function.name,
+                    "arguments": t.function.arguments,
+                },
+                comboId=combo_id,
+            )
+        )
+        print(f"function call added to chain {t.function.name}({t.function.arguments})")
 
     if len(tasks) > 0:
         # Create a group for function calls and submission
@@ -589,17 +598,24 @@ class assistantTask:
 
         try:
             run = self.client.beta.threads.runs.create(
-            thread_id=self.thread_id,
-            assistant_id= self.assistant_id,
-            temperature=temperature,
+                thread_id=self.thread_id,
+                assistant_id=self.assistant_id,
+                temperature=temperature,
             )
         except Exception as exc:
             print(f"Create thread failed: {exc}")
             return None
         try:
-            self.task = OpenaiTask.objects.create( assistantId=self.assistant_id, runId=run.id, threadId=self.thread_id, completionCall=self.completionCall, tools=None if self.tools is None else ",".join(self.tools), meta = self._metadata    )
+            self.task = OpenaiTask.objects.create(
+                assistantId=self.assistant_id,
+                runId=run.id,
+                threadId=self.thread_id,
+                completionCall=self.completionCall,
+                tools=None if self.tools is None else ",".join(self.tools),
+                meta=self._metadata,
+            )
         except Exception as e:
-            print('create run failed '+str(e))
+            print("create run failed " + str(e))
             return None
 
         get_status.delay(f"{self.task.runId},{self.task.threadId}")
@@ -636,7 +652,6 @@ class assistantTask:
             Optional[str]: Markdown formatted response or None
         """
         return asmarkdown(self.response, replace_this, with_this)
-
 
     def getMarkdownResponse(
         self, replace_this: Optional[str] = None, with_this: Optional[str] = None
