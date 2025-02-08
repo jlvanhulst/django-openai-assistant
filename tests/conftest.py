@@ -26,6 +26,8 @@ def mock_openai_client():
         client = MagicMock()
         mock_client.return_value = client
         client.api_key = "test-key"
+        client.beta.assistants.list.return_value = MagicMock(data=[])
+        client.beta.threads.runs.create.return_value = MagicMock(id="run_123")
         yield client
 
 

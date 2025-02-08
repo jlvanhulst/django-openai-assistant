@@ -3,7 +3,6 @@ import inspect
 import json
 from typing import Any, BinaryIO, Callable, Optional, Union
 
-import markdown
 from celery import chord, shared_task
 from django.conf import settings
 from django.utils import timezone
@@ -75,24 +74,10 @@ def asmarkdown(
     if text is None:
         return None
 
-    extension_configs = {
-        "markdown_link_attr_modifier": {
-            "new_tab": "on",
-            "no_referrer": "external_only",
-            "auto_title": "on",
-        }
-    }
-
-    result = markdown.markdown(
-        text,
-        extensions=["tables", "markdown_link_attr_modifier"],
-        extension_configs=extension_configs,
-    )
-
     if replaceThis is not None and withThis is not None:
-        result = result.replace(replaceThis, withThis)
+        text = text.replace(replaceThis, withThis)
 
-    return result
+    return text
 
 
 def createAssistant(
@@ -808,6 +793,16 @@ class assistantTask:
                     if t.type == "text":
                         res += t.text.value
         return res
+
+    def getRunStatus(self) -> Optional[str]:
+        """Get the current status of the run.
+
+        Returns:
+            Optional[str]: The run status if available, None otherwise
+        """
+        if self.runObject is None:
+            return None
+        return self.runObject.status
 
     def retrieveFile(self, file_id: str) -> bytes:
         """Download a file's content from OpenAI's servers.
