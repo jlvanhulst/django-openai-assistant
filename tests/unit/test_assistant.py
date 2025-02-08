@@ -217,7 +217,8 @@ def test_thread_message_handling(mock_openai_client, mock_assistant, mock_thread
     mock_openai_client.beta.threads.messages.list.return_value.data = [mock_message]
 
     task = assistantTask(assistantName="Test Assistant")
-    task.thread_id = "thread_123"
+    task.threadObject = mock_thread
+    task.task = MagicMock(threadId="thread_123")
 
     # Test message retrieval
     messages = task.getAllMessages()
@@ -249,10 +250,11 @@ def test_run_status_tracking(mock_openai_client, mock_assistant, mock_thread, mo
             assistantName="Test Assistant",
             completionCall="test_callback" if status == "completed" else None,
         )
-        task.run_id = "run_123"
-        task.thread_id = "thread_123"
+        task.runObject = mock_run
+        task.threadObject = mock_thread
+        task.task = MagicMock(runId="run_123", threadId="thread_123")
 
-        current_status = task.get_run_status()
+        current_status = task.getRunStatus()
         assert current_status == status
 
         if status == "completed":
@@ -281,7 +283,7 @@ def test_vision_file_upload(mock_openai_client, mock_assistant):
 
     task = assistantTask(assistantName="Test Assistant")
     fileContent = b"test image"
-    file_id = task.upload_file(fileContent=fileContent, filename="test.jpg")
+    file_id = task.uploadFile(fileContent=fileContent, filename="test.jpg")
 
     assert file_id == "file_123"
     assert len(task._fileids) == 1
@@ -310,7 +312,8 @@ def test_message_handling(mock_openai_client, mock_assistant, mock_thread):
     mock_openai_client.beta.threads.messages.list.return_value.data = [mock_message]
 
     task = assistantTask(assistantName="Test Assistant")
-    task.thread_id = "thread_123"
+    task.threadObject = mock_thread
+    task.task = MagicMock(threadId="thread_123")
 
     # Test message retrieval methods
     last_response = task.getLastResponse()
@@ -376,11 +379,11 @@ def test_celery_integration(
         completionCall="chatbot.google:replyToEmail",
     )
     task.prompt = "Process this email"
-    run_id = task.create_run()
+    run_id = task.createRun()
 
     mock_celery_task.delay.assert_called_once_with(
         run_id=run_id,
-        thread_id=task.thread_id,
+        thread_id=task.task.threadId,
         completionCall="chatbot.google:replyToEmail",
     )
 
@@ -473,10 +476,10 @@ def test_vision_support(mock_openai_client, mock_assistant, mock_thread, mock_ru
     mock_openai_client.beta.threads.messages.list.return_value.data = [mock_message]
 
     task.prompt = "Analyze this image"
-    run_id = task.create_run()
+    run_id = task.createRun()
     assert run_id == mock_run.id
 
-    response = task.get_full_response()
+    response = task.getFullResponse()
     assert "The image shows a test pattern" in response
 
     # Test multiple image handling
@@ -547,12 +550,14 @@ def test_error_handling(mock_openai_client, mock_assistant, mock_thread, mock_ru
     # Test run creation failure
     mock_openai_client.beta.threads.runs.create.side_effect = Exception("API Error")
     task = assistantTask(assistantName="Test Assistant")
-    task.thread_id = "thread_123"
+    task.threadObject = mock_thread
+    task.task = MagicMock(threadId="thread_123")
     assert task.createRun() is None
 
     # Test run status handling
     mock_run.status = "failed"
     mock_openai_client.beta.threads.runs.retrieve.return_value = mock_run
-    task.run_id = "run_123"
+    task.runObject = mock_run
+    task.task = MagicMock(runId="run_123")
     status = task.getRunStatus()
     assert status == "failed"
