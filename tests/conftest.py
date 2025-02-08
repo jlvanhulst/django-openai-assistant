@@ -7,9 +7,10 @@ from openai import OpenAI  # noqa: F401
 
 @pytest.fixture
 def mock_openai_client():
-    with patch("openai.OpenAI") as mock_client:
+    with patch("django_openai_assistant.assistant.OpenAI") as mock_client:
         client = MagicMock()
         mock_client.return_value = client
+        client.api_key = "test-key"
         yield client
 
 
