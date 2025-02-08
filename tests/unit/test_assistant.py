@@ -68,7 +68,7 @@ def test_assistant_creation_and_configuration(mock_openai_client, mock_assistant
     # Test basic initialization
     task = assistantTask(assistantName="Test Assistant")
     assert task.assistant_id == "asst_123"
-    assert task.tools is None  # tools is None by default
+    assert task.tools == []  # tools is empty list by default
     assert task.metadata == {}
 
     # Test with completion callback
@@ -131,6 +131,8 @@ def test_create_run(mock_openai_client, mock_assistant, mock_thread, mock_run):
 
     task = assistantTask(assistantName="Test Assistant")
     task.prompt = "Test prompt"
+    task.threadObject = mock_thread
+    task.task = MagicMock(threadId="thread_123")
     run_id = task.createRun(temperature=0.7)
 
     assert run_id == "run_123"
@@ -164,10 +166,7 @@ def test_tool_calling_and_completion(
     mock_openai_client.beta.threads.runs.create.return_value = mock_run
 
     # Test with real-world tool configuration
-    tools = {
-        "getCompany": {"module": "salesforce"},
-        "fuzzy_search": {"module": "pinecone"},
-    }
+    tools = ["salesforce:getCompany", "pinecone:fuzzy_search"]
     task = assistantTask(
         assistantName="Test Assistant",
         tools=tools,
@@ -370,6 +369,7 @@ def test_asmarkdown_function():
     assert "italic" in result_with_replace
 
 
+@pytest.mark.django_db
 def test_celery_integration(
     mock_openai_client, mock_assistant, mock_thread, mock_run, mock_celery_task
 ):
