@@ -529,7 +529,7 @@ class assistantTask:
         self.error = None
         self.completionCall = None
         self._metadata = None
-        self._tools = None
+        self._tools = []
         for key, value in kwargs.items():
             if (
                 key == "run_id"

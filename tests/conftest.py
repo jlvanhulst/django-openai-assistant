@@ -6,25 +6,26 @@ from openai import OpenAI  # noqa: F401
 
 
 @pytest.fixture
+def mock_celery_task():
+    with patch("django_openai_assistant.assistant.get_status") as mock_task:
+        mock_task.delay = MagicMock()
+        yield mock_task
+
+
+@pytest.fixture(autouse=True)
+def mock_redis():
+    with patch("redis.Redis") as mock_redis:
+        mock_redis.return_value.ping.return_value = True
+        mock_redis.return_value = MagicMock()
+        yield mock_redis
+
+
+@pytest.fixture
 def mock_openai_client():
     with patch("django_openai_assistant.assistant.OpenAI") as mock_client:
         client = MagicMock()
         mock_client.return_value = client
         client.api_key = "test-key"
-        yield client
-
-
-@pytest.fixture
-def mock_celery_task():
-    with patch("celery.shared_task") as mock_task:
-        yield mock_task
-
-
-@pytest.fixture
-def mock_redis():
-    with patch("redis.Redis") as mock_redis:
-        client = MagicMock()
-        mock_redis.return_value = client
         yield client
 
 

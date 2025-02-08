@@ -357,7 +357,9 @@ def test_response_formats(mock_openai_client, mock_assistant, mock_thread):
 
     # Test markdown with replacements
     task.response = "**bold** *italic*"
-    markdown_response = task.getMarkdownResponse(replaceThis="bold", withThis="strong")
+    markdown_response = task.getMarkdownResponse(
+        replace_this="bold", with_this="strong"
+    )
     assert "**strong** *italic*" == markdown_response
 
     # Test null responses
