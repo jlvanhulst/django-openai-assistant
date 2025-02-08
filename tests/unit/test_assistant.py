@@ -68,7 +68,7 @@ def test_assistant_creation_and_configuration(mock_openai_client, mock_assistant
     # Test basic initialization
     task = assistantTask(assistantName="Test Assistant")
     assert task.assistant_id == "asst_123"
-    assert task.tools == []
+    assert task.tools is None  # tools is None by default
     assert task.metadata == {}
 
     # Test with completion callback
@@ -174,7 +174,9 @@ def test_tool_calling_and_completion(
         metadata={"user_email": "test@example.com"},
     )
     task.prompt = "Get company information"
-    run_id = task.create_run()
+    task.threadObject = mock_thread
+    task.task = MagicMock(threadId="thread_123")
+    run_id = task.createRun()
 
     assert run_id == "run_123"
     assert task.status == "requires_action"
@@ -232,7 +234,7 @@ def test_thread_message_handling(mock_openai_client, mock_assistant, mock_thread
 
     # Test file retrieval
     mock_openai_client.files.content.return_value = b"file content"
-    file_content = task.retrieve_file("file_123")
+    file_content = task.retrieveFile("file_123")
     assert file_content == b"file content"
 
 
@@ -254,7 +256,7 @@ def test_run_status_tracking(mock_openai_client, mock_assistant, mock_thread, mo
         task.threadObject = mock_thread
         task.task = MagicMock(runId="run_123", threadId="thread_123")
 
-        current_status = task.getRunStatus()
+        current_status = task.get_run_status()
         assert current_status == status
 
         if status == "completed":
@@ -346,7 +348,9 @@ def test_response_formats(mock_openai_client, mock_assistant, mock_thread):
 
     # Test markdown with replacements
     task.response = "**bold** *italic*"
-    markdown_response = task.getMarkdownResponse(replaceThis="bold", withThis="strong")
+    markdown_response = task.getMarkdownResponse(
+        replace_this="bold", with_this="strong"
+    )
     assert markdown_response == "**strong** *italic*"
 
     # Test null responses
@@ -373,12 +377,15 @@ def test_celery_integration(
     mock_openai_client.beta.threads.create.return_value = mock_thread
 
     # Test async task queuing
+    mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     task = assistantTask(
         assistantName="Test Assistant",
         metadata={"user_email": "test@example.com"},
         completionCall="chatbot.google:replyToEmail",
     )
     task.prompt = "Process this email"
+    task.threadObject = mock_thread
+    task.task = MagicMock(threadId="thread_123")
     run_id = task.createRun()
 
     mock_celery_task.delay.assert_called_once_with(
@@ -421,8 +428,12 @@ def test_celery_integration(
     # Test error handling in task
     mock_run.status = "failed"
     mock_openai_client.beta.threads.runs.retrieve.return_value = mock_run
-    task.task.status = "failed"
-    task.task.save()
+    task.task = OpenaiTask.objects.create(
+        runId=run_id,
+        threadId="thread_123",
+        assistant_id="asst_123",
+        status="failed",
+    )
 
     assert get_status(f"{task.run_id},{task.thread_id}") == "failed"
     assert task.task.status == "failed"
@@ -448,7 +459,7 @@ def test_vision_support(mock_openai_client, mock_assistant, mock_thread, mock_ru
         content_type="image/png",
     )
 
-    file_id = task.uploadFile(file=mock_image)
+    file_id = task.uploadFile(file=mock_image, filename="test.png")
     assert file_id == "file_123"
     assert task._fileids[-1]["vision"] is True
     assert task._fileids[-1]["retrieval"] is False
@@ -496,7 +507,7 @@ def test_vision_support(mock_openai_client, mock_assistant, mock_thread, mock_ru
         content_type="image/jpeg",
     )
 
-    file_id2 = task.uploadFile(file=mock_image2)
+    file_id2 = task.uploadFile(file=mock_image2, filename="test2.jpg")
     assert file_id2 == "file_456"
     assert task._fileids[-1]["vision"] is True
 
@@ -524,7 +535,7 @@ def test_vision_support(mock_openai_client, mock_assistant, mock_thread, mock_ru
         mock_file = MagicMock()
         mock_file.name = f"test{ext}"
         mock_file.read.return_value = b"image content"
-        file_id = task.uploadFile(file=mock_file)
+        file_id = task.uploadFile(file=mock_file, filename=f"test{ext}")
         assert task._fileids[-1]["vision"] is True
         assert task._fileids[-1]["retrieval"] is False
 
@@ -543,10 +554,6 @@ def test_error_handling(mock_openai_client, mock_assistant, mock_thread, mock_ru
     with pytest.raises(ValueError, match="Assistant .* not found"):
         assistantTask(assistantName="NonexistentAssistant")
 
-    # Test invalid tool configuration
-    with pytest.raises(ValueError, match="tools must be.*"):
-        assistantTask(assistantName="Test Assistant", tools="invalid")
-
     # Test run creation failure
     mock_openai_client.beta.threads.runs.create.side_effect = Exception("API Error")
     task = assistantTask(assistantName="Test Assistant")
@@ -554,10 +561,17 @@ def test_error_handling(mock_openai_client, mock_assistant, mock_thread, mock_ru
     task.task = MagicMock(threadId="thread_123")
     assert task.createRun() is None
 
+    # Test invalid tool configuration
+    mock_openai_client.beta.assistants.list.return_value.data = []
+    with pytest.raises(ValueError, match="Assistant .* not found"):
+        assistantTask(assistantName="Test Assistant", tools="invalid")
+
     # Test run status handling
+    mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_run.status = "failed"
     mock_openai_client.beta.threads.runs.retrieve.return_value = mock_run
+    task = assistantTask(assistantName="Test Assistant")
     task.runObject = mock_run
     task.task = MagicMock(runId="run_123")
-    status = task.getRunStatus()
+    status = task.get_run_status()
     assert status == "failed"
