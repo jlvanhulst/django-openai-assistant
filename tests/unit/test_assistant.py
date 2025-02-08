@@ -131,7 +131,7 @@ def test_create_run(mock_openai_client, mock_assistant, mock_thread, mock_run):
 
     task = assistantTask(assistantName="Test Assistant")
     task.prompt = "Test prompt"
-    run_id = task.create_run(temperature=0.7)
+    run_id = task.createRun(temperature=0.7)
 
     assert run_id == "run_123"
     assert task.thread_id == "thread_123"
@@ -220,13 +220,13 @@ def test_thread_message_handling(mock_openai_client, mock_assistant, mock_thread
     task.thread_id = "thread_123"
 
     # Test message retrieval
-    messages = task.get_all_messages()
+    messages = task.getAllMessages()
     assert len(messages) == 1
     assert messages[0].id == "msg_123"
     assert len(messages[0].content) == 2
 
     # Test full response formatting
-    full_response = task.get_full_response()
+    full_response = task.getFullResponse()
     assert "Text response" in full_response
 
     # Test file retrieval
@@ -267,7 +267,7 @@ def test_file_upload(mock_openai_client, mock_assistant):
 
     task = assistantTask(assistantName="Test Assistant")
     fileContent = b"test content"
-    file_id = task.upload_file(fileContent=fileContent, filename="test.txt")
+    file_id = task.uploadFile(fileContent=fileContent, filename="test.txt")
 
     assert file_id == "file_123"
     assert len(task._fileids) == 1
@@ -313,15 +313,15 @@ def test_message_handling(mock_openai_client, mock_assistant, mock_thread):
     task.thread_id = "thread_123"
 
     # Test message retrieval methods
-    last_response = task.get_last_response()
+    last_response = task.getLastResponse()
     assert last_response is not None
     assert last_response.id == "msg_123"
 
-    all_messages = task.get_all_messages()
+    all_messages = task.getAllMessages()
     assert len(all_messages) == 1
     assert all_messages[0].id == "msg_123"
 
-    full_response = task.get_full_response()
+    full_response = task.getFullResponse()
     assert full_response == "Test response"
 
 
@@ -343,13 +343,13 @@ def test_response_formats(mock_openai_client, mock_assistant, mock_thread):
 
     # Test markdown with replacements
     task.response = "**bold** *italic*"
-    markdown_response = task.markdownResponse(replaceThis="bold", withThis="strong")
+    markdown_response = task.getMarkdownResponse(replaceThis="bold", withThis="strong")
     assert markdown_response == "**strong** *italic*"
 
     # Test null responses
     task.response = None
     assert task.jsonResponse() is None
-    assert task.markdownResponse() is None
+    assert task.getMarkdownResponse() is None
 
 
 def test_asmarkdown_function():
@@ -445,7 +445,7 @@ def test_vision_support(mock_openai_client, mock_assistant, mock_thread, mock_ru
         content_type="image/png",
     )
 
-    file_id = task.upload_file(file=mock_image)
+    file_id = task.uploadFile(file=mock_image)
     assert file_id == "file_123"
     assert task._fileids[-1]["vision"] is True
     assert task._fileids[-1]["retrieval"] is False
@@ -493,7 +493,7 @@ def test_vision_support(mock_openai_client, mock_assistant, mock_thread, mock_ru
         content_type="image/jpeg",
     )
 
-    file_id2 = task.upload_file(file=mock_image2)
+    file_id2 = task.uploadFile(file=mock_image2)
     assert file_id2 == "file_456"
     assert task._fileids[-1]["vision"] is True
 
@@ -508,11 +508,11 @@ def test_vision_support(mock_openai_client, mock_assistant, mock_thread, mock_ru
     ]
     mock_message.file_ids = ["file_123", "file_456"]
 
-    response = task.get_full_response()
+    response = task.getFullResponse()
     assert "Here are the analyzed images" in response
 
     # Test image file deletion
-    task.delete_file("file_123")
+    task.deleteFile("file_123")
     mock_openai_client.files.delete.assert_called_with(file_id="file_123")
 
     # Test vision support with different file types
@@ -521,7 +521,7 @@ def test_vision_support(mock_openai_client, mock_assistant, mock_thread, mock_ru
         mock_file = MagicMock()
         mock_file.name = f"test{ext}"
         mock_file.read.return_value = b"image content"
-        file_id = task.upload_file(file=mock_file)
+        file_id = task.uploadFile(file=mock_file)
         assert task._fileids[-1]["vision"] is True
         assert task._fileids[-1]["retrieval"] is False
 
@@ -533,7 +533,7 @@ def test_error_handling(mock_openai_client, mock_assistant, mock_thread, mock_ru
     # Test missing thread ID
     task = assistantTask(assistantName="Test Assistant")
     with pytest.raises(ValueError, match="Thread ID is required"):
-        task.get_all_messages()
+        task.getAllMessages()
 
     # Test invalid assistant name
     mock_openai_client.beta.assistants.list.return_value.data = []
@@ -548,11 +548,11 @@ def test_error_handling(mock_openai_client, mock_assistant, mock_thread, mock_ru
     mock_openai_client.beta.threads.runs.create.side_effect = Exception("API Error")
     task = assistantTask(assistantName="Test Assistant")
     task.thread_id = "thread_123"
-    assert task.create_run() is None
+    assert task.createRun() is None
 
     # Test run status handling
     mock_run.status = "failed"
     mock_openai_client.beta.threads.runs.retrieve.return_value = mock_run
     task.run_id = "run_123"
-    status = task.get_run_status()
+    status = task.getRunStatus()
     assert status == "failed"
