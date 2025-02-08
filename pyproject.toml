@@ -25,7 +25,8 @@ dev = [
     "pytest-redis>=3.0.0",
     "pytest-mock",
     "pytest-asyncio",
-    "django>=4.2.0"
+    "django>=4.2.0",
+    "markdown-link-attr-modifier>=0.2.0"
 ]
 
 [tool.black]
