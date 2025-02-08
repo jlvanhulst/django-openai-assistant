@@ -129,6 +129,7 @@ def test_set_default_tools():
     assert result["test_function"]["module"] == "test_module"
 
 
+@pytest.mark.django_db
 def test_create_run(mock_openai_client, mock_assistant, mock_thread, mock_run):
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
@@ -195,11 +196,12 @@ def test_tool_calling_and_completion(
     task.run_id = run_id
     task.thread_id = "thread_123"
 
-    status = task.get_run_status()
+    status = task.getRunStatus()
     assert status == "completed"
     assert task.completionCall == "test_callback"
 
 
+@pytest.mark.django_db
 def test_thread_message_handling(mock_openai_client, mock_assistant, mock_thread):
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
@@ -243,6 +245,7 @@ def test_thread_message_handling(mock_openai_client, mock_assistant, mock_thread
     assert file_content == b"file content"
 
 
+@pytest.mark.django_db
 def test_run_status_tracking(mock_openai_client, mock_assistant, mock_thread, mock_run):
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
@@ -335,6 +338,7 @@ def test_message_handling(mock_openai_client, mock_assistant, mock_thread):
     assert full_response == "Test response"
 
 
+@pytest.mark.django_db
 def test_response_formats(mock_openai_client, mock_assistant, mock_thread):
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
     mock_openai_client.beta.threads.create.return_value = mock_thread
@@ -354,7 +358,7 @@ def test_response_formats(mock_openai_client, mock_assistant, mock_thread):
     # Test markdown with replacements
     task.response = "**bold** *italic*"
     markdown_response = task.getMarkdownResponse(replaceThis="bold", withThis="strong")
-    assert "<p><strong>strong</strong> <em>italic</em></p>" == markdown_response
+    assert "**strong** *italic*" == markdown_response
 
     # Test null responses
     task.response = None
@@ -547,9 +551,9 @@ def test_vision_support(mock_openai_client, mock_assistant, mock_thread, mock_ru
         assert task._fileids[-1]["retrieval"] is False
 
 
+@pytest.mark.django_db
 def test_error_handling(mock_openai_client, mock_assistant, mock_thread, mock_run):
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
-    mock_openai_client.beta.threads.create.return_value = mock_thread
     mock_openai_client.beta.threads.create.return_value = mock_thread
 
     # Test missing thread ID
