@@ -237,13 +237,7 @@ def call_tools_delay(
                 comboId=combo_id,
             )
         )
-        print(
-            "function call added to chain "
-            + t.function.name
-            + "("
-            + t.function.arguments
-            + ")"
-        )
+        print(f"function call added to chain {t.function.name}({t.function.arguments})")
 
     if len(tasks) > 0:
         # Create a group for function calls and submission
