@@ -29,9 +29,9 @@ jobs:
         flake8 .
     - name: Run tests
       env:
-        DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
-        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        REDIS_URL: ${{ secrets.REDIS_URL }}
+        DJANGO_SECRET_KEY: test-key
+        OPENAI_API_KEY: test-key
+        REDIS_URL: redis://localhost:6379/0
         DJANGO_SETTINGS_MODULE: tests.settings
         CELERY_BROKER_URL: redis://localhost:6379/0
       run: |
