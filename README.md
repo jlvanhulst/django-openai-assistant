@@ -61,6 +61,10 @@ See https://medium.com/@jlvalorvc/building-a-scalable-openai-assistant-processor
 
 
 ## Version history:
+0.7.8
+- uploadFile regression fileContent not file_content!
+- minimum openai 1.61.0
+
 0.7.7
 - more fixes double entry
 

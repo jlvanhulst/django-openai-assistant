@@ -637,63 +637,6 @@ class assistantTask:
         """
         return asmarkdown(self.response, replace_this, with_this)
 
-    def uploadFile(
-        self,
-        file: Optional[Union[str, bytes, BinaryIO]] = None,
-        file_content: Optional[bytes] = None,
-        filename: str = "",
-        vision: bool = False,
-        retrieval: bool = False,
-        **kwargs,
-    ) -> str:
-        """Upload a file to OpenAI for use in the Thread.
-
-        Args:
-            file: File path, bytes, or file-like object to upload
-            file_content: Raw bytes content of the file if not using file parameter
-            filename: Name of the file to use
-            vision: Whether to use the file for vision tasks
-            retrieval: Whether to use the file for retrieval tasks
-            **kwargs: Additional arguments to pass to the OpenAI API
-
-        Returns:
-            str: The ID of the uploaded file from OpenAI
-
-        Raises:
-            ValueError: If filename missing or no file/content provided
-        """
-        if not filename:
-            raise ValueError("filename is required")
-
-        if file_content is None:
-            if file is None:
-                raise ValueError("Either file or file_content must be provided")
-            try:
-                if isinstance(file, str):
-                    with open(file, "rb") as f:
-                        file_content = f.read()
-                elif isinstance(file, (bytes, bytearray, memoryview)):
-                    file_content = bytes(file)
-                elif hasattr(file, "read"):
-                    try:
-                        file_content = file.read()
-                        if not isinstance(file_content, bytes):
-                            file_content = bytes(file_content)
-                    except (TypeError, AttributeError):
-                        raise ValueError("File object must support reading bytes")
-                else:
-                    raise ValueError(
-                        "File must be a path string, bytes, or file-like object"
-                    )
-            except (AttributeError, IOError) as exc:
-                raise ValueError(f"Could not read from file: {exc}")
-
-        file_extension = filename.split(".")[-1].lower()
-
-        image_extensions = ["jpg", "jpeg", "png", "gif", "bmp", "tiff"]
-        vision = vision or file_extension in image_extensions
-
-        return None
 
     def getMarkdownResponse(
         self, replace_this: Optional[str] = None, with_this: Optional[str] = None
@@ -712,7 +655,7 @@ class assistantTask:
     def uploadFile(
         self,
         file: Optional[Union[str, bytes, BinaryIO]] = None,
-        file_content: Optional[bytes] = None,
+        fileContent: Optional[bytes] = None,
         filename: str = "",
         vision: bool = False,
         retrieval: bool = False,
@@ -737,20 +680,20 @@ class assistantTask:
         if not filename:
             raise ValueError("filename is required")
 
-        if file_content is None:
+        if fileContent is None:
             if file is None:
-                raise ValueError("Either file or file_content must be provided")
+                raise ValueError("Either file or fileContent must be provided")
             try:
                 if isinstance(file, str):
                     with open(file, "rb") as f:
-                        file_content = f.read()
+                        fileContent = f.read()
                 elif isinstance(file, (bytes, bytearray, memoryview)):
-                    file_content = bytes(file)
+                    fileContent = bytes(file)
                 elif hasattr(file, "read"):
                     try:
-                        file_content = file.read()
-                        if not isinstance(file_content, bytes):
-                            file_content = bytes(file_content)
+                        fileContent = file.read()
+                        if not isinstance(fileContent, bytes):
+                            fileContent = bytes(fileContent)
                     except (TypeError, AttributeError):
                         raise ValueError("File object must support reading bytes")
                 else:
@@ -790,7 +733,7 @@ class assistantTask:
         retrieval = retrieval or file_extension in retrieval_extensions
 
         uploadFile = self.client.files.create(
-            file=(filename, file_content), purpose="vision" if vision else "assistants"
+            file=(filename, fileContent), purpose="vision" if vision else "assistants"
         )
 
         self._fileids.append(
