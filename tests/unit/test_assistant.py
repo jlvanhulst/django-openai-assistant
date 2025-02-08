@@ -388,6 +388,8 @@ def test_celery_integration(
 
     # Test async task queuing
     mock_openai_client.beta.assistants.list.return_value.data = [mock_assistant]
+    mock_openai_client.beta.threads.runs.create.return_value = mock_run
+
     task = assistantTask(
         assistantName="Test Assistant",
         metadata={"user_email": "test@example.com"},
@@ -398,11 +400,7 @@ def test_celery_integration(
     task.task = MagicMock(threadId="thread_123")
     run_id = task.createRun()
 
-    mock_celery_task.delay.assert_called_once_with(
-        run_id=run_id,
-        thread_id=task.task.threadId,
-        completionCall="chatbot.google:replyToEmail",
-    )
+    mock_celery_task.delay.assert_called_once_with(f"{run_id},{task.thread_id}")
 
     # Test task status monitoring
     mock_run.status = "in_progress"
